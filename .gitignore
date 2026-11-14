@@ -5,3 +5,5 @@ __pycache__/
 infrastructure/registration/.env
 *.sqlite3*
 m0-report-*.txt
+# Local, per-machine compose overrides
+infrastructure/registration/docker-compose.override.yml
