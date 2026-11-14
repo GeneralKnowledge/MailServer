@@ -1,7 +1,23 @@
 # DNS configuration
 
-Fill in once the domain is known and its current records have been checked
-with `scripts/m0-inspect.sh`. **Read existing records before changing any.**
+Domain: **avedeus.ovh**. Mail host: **mail.avedeus.ovh**. The tables below use
+`example.com` as a placeholder for it. **Read existing records before changing any.**
+
+## Current records (checked 2026-11-14 via public DNS)
+
+| Record | Current value | Impact |
+|---|---|---|
+| NS | `alan.ns.cloudflare.com`, `jill.ns.cloudflare.com` | DNS is managed in **Cloudflare**; mail records must be *DNS only* (grey cloud) |
+| MX | `1 mx1.mail.ovh.net`, `5 mx2.mail.ovh.net`, `100 mx3.mail.ovh.net` | Mail for the domain currently goes to **OVH's mail service** |
+| TXT (SPF) | `v=spf1 include:mx.ovh.com -all` | Must be replaced/merged when we switch |
+| TXT | `1\|www.avedeus.ovh` | OVH marker (web redirect); leave alone |
+| `www` A | `104.21.34.217`, `172.67.165.152` (Cloudflare proxy) | Website; untouched |
+| apex A, CAA | none | Fine; no CAA means Let's Encrypt is allowed |
+| `_dmarc`, `mail`, `autodiscover`, `autoconfig` | none | Free to create |
+| AAAA (apex) | not checked (lookup rate-limited) | |
+
+Before switching MX, confirm whether any OVH mailboxes/redirects on
+avedeus.ovh are in use; anything still going to OVH stops arriving there.
 
 | Name | Type | Value | Stage |
 |---|---|---|---|

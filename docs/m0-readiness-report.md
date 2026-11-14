@@ -20,11 +20,11 @@ Date: 2026-11-01
 | Outbound port 25 | Unknown | **Blocked by default** on OCI tenancies created after 2021-06-23. **Critical blocker for sending.** See §4. |
 | Reverse DNS | Unknown | **Not self-service on OCI**; needs a service request. See §4. |
 | Public IP | Available | Must be a **reserved** public IP, or the PTR/DNS break when the instance is stopped. _(to verify)_ |
-| Domain / DNS | Unknown | Need the real domain and access to its DNS provider. |
+| Domain / DNS | avedeus.ovh | DNS hosted on Cloudflare; MX currently points to OVH mail. See [dns-configuration.md](dns-configuration.md). |
 
 ## 2. Missing prerequisites (known now)
 
-1. **The real domain name**, and who hosts its DNS.
+1. ~~The real domain name~~: **avedeus.ovh** (DNS on Cloudflare). Decide whether OVH mail on it is in use before moving MX.
 2. **A way to reach the server** (SSH, or a Claude Remote Control session on a
    machine that can SSH to it).
 3. **Outbound TCP 25 exemption** from Oracle, or an SMTP relay (§4).
