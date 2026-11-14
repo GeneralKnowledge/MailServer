@@ -19,7 +19,7 @@ the mailcow API.
 | M3 Invitation registration | App built and tested against a simulated mailcow API; real API check pending |
 | M4 Production preparation | Backup/restore/health scripts and docs ready; off-site target and restore test pending |
 
-Nothing has been deployed yet. Placeholder branding is in `branding/`.
+Nothing has been deployed yet. Branding ("Avedeus Mail") is in `branding/`.
 
 ## Contents
 

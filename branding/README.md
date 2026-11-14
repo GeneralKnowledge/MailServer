@@ -9,7 +9,7 @@ copies them to both the invite website and SOGo webmail.
 | `logo.svg` | Square icon: invite site header and favicon, SOGo compact logo |
 | `logo-full.svg` | Wide logo with the name: SOGo login page and sidebar |
 
-The current files are **placeholders**.
+Current brand (2026-11-14): **Avedeus Mail**. Plum `#4b2a63` with antique gold `#b8862b`; the mark is an "A" whose crossbar is an envelope fold.
 
 ## What gets changed
 

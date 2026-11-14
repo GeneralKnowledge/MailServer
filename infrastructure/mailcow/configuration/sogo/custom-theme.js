@@ -4,8 +4,8 @@
   angular.module('SOGo.Common').config(configure);
   configure.$inject = ['$mdThemingProvider'];
   function configure($mdThemingProvider) {
-    $mdThemingProvider.definePalette('brand-primary', {"50": "EAEFF3", "100": "CBD6E2", "200": "A1B6CA", "300": "7896B3", "400": "4E759C", "500": "2F5D8A", "600": "295279", "700": "234668", "800": "1D3A56", "900": "182E45", "A100": "ACBED0", "A200": "6D8EAD", "A400": "2F5D8A", "A700": "264A6E", "contrastDefaultColor": "light", "contrastDarkColors": ["50", "100", "200", "A100"]});
-    $mdThemingProvider.definePalette('brand-accent', {"50": "FCF3EB", "100": "F7E2CE", "200": "F1CAA6", "300": "EBB27F", "400": "E59B58", "500": "E0893A", "600": "C57933", "700": "A8672C", "800": "8B5524", "900": "70441D", "A100": "F3D0B0", "A200": "E9AC75", "A400": "E0893A", "A700": "B36E2E", "contrastDefaultColor": "light", "contrastDarkColors": ["50", "100", "200", "300", "A100", "A200"]});
+    $mdThemingProvider.definePalette('brand-primary', {"50": "EDEAEF", "100": "D2CAD8", "200": "AE9FB9", "300": "8A759A", "400": "664A7A", "500": "4B2A63", "600": "422557", "700": "38204A", "800": "2E1A3D", "900": "261532", "A100": "B7AAC1", "A200": "816A92", "A400": "4B2A63", "A700": "3C224F", "contrastDefaultColor": "light", "contrastDarkColors": ["50", "100"]});
+    $mdThemingProvider.definePalette('brand-accent', {"50": "F8F3EA", "100": "EDE1CA", "200": "DFC9A0", "300": "D1B075", "400": "C3984B", "500": "B8862B", "600": "A27626", "700": "8A6420", "800": "72531B", "900": "5C4316", "A100": "E3CFAA", "A200": "CDAA6B", "A400": "B8862B", "A700": "936B22", "contrastDefaultColor": "light", "contrastDarkColors": ["50", "100", "200", "300", "A100"]});
     $mdThemingProvider.theme('default')
       .primaryPalette('brand-primary', {'default': '500', 'hue-1': '300', 'hue-2': '700', 'hue-3': 'A700'})
       .accentPalette('brand-accent', {'default': '500', 'hue-1': '300', 'hue-2': '700', 'hue-3': 'A700'})
