@@ -19,6 +19,17 @@ REMOTE_KEEP_DAYS="${REMOTE_KEEP_DAYS:-30}"
 RCLONE_REMOTE="${RCLONE_REMOTE:-}"
 log() { echo "$(date -u +%FT%TZ) $*"; }
 
+# mailcow's generate_config.sh leaves DOCKER_COMPOSE_VERSION empty until the
+# first update.sh, and backup_and_restore.sh's restore refuses to run then.
+fix_compose_version() {
+  local conf="$MAILCOW_DIR/mailcow.conf"
+  if grep -q '^DOCKER_COMPOSE_VERSION=$' "$conf" 2>/dev/null && docker compose version >/dev/null 2>&1; then
+    sed -i 's/^DOCKER_COMPOSE_VERSION=$/DOCKER_COMPOSE_VERSION=native/' "$conf"
+    echo "Set DOCKER_COMPOSE_VERSION=native in $conf (was empty)"
+  fi
+}
+
+fix_compose_version
 mkdir -p "$BACKUP_DIR"
 chmod 1777 "$BACKUP_DIR"   # mailcow's helper requires it to be writable by its backup container
 
@@ -39,9 +50,11 @@ if docker ps --format '{{.Names}}' | grep -q '^registration-registration'; then
     registration:/data/backup.sqlite3 "$latest/extras/registration.sqlite3"
 fi
 cp -a "$REPO_DIR/infrastructure/registration/.env" "$latest/extras/registration.env" 2>/dev/null || true
-# Our customisations inside mailcow (nginx site, SOGo theme/logos) and mailcow.conf
-tar -C "$MAILCOW_DIR" -czf "$latest/extras/mailcow-custom.tgz" \
-  mailcow.conf data/conf/nginx/ data/conf/sogo/ data/assets/ssl/ 2>/dev/null || true
+# Our customisations inside mailcow (nginx site, SOGo theme/logos, login page
+# stylesheet, compose override) and mailcow.conf
+tar -C "$MAILCOW_DIR" -czf "$latest/extras/mailcow-custom.tgz" --ignore-failed-read \
+  mailcow.conf docker-compose.override.yml data/conf/nginx/ data/conf/sogo/ \
+  data/web/css/build/0081-custom-mailcow.css data/assets/ssl/ 2>/dev/null || true
 chmod -R go-rwx "$latest/extras"
 
 log "verify"
@@ -61,7 +74,12 @@ fi
 if [ -n "$RCLONE_REMOTE" ]; then
   log "upload -> $RCLONE_REMOTE/$(basename "$latest")"
   rclone copy "$latest" "$RCLONE_REMOTE/$(basename "$latest")" --transfers 4
-  rclone check "$latest" "$RCLONE_REMOTE/$(basename "$latest")" --one-way
+  # A crypt remote has no hashes to compare; cryptcheck verifies contents.
+  if [ "$(rclone config dump | jq -r --arg r "${RCLONE_REMOTE%%:*}" '.[$r].type')" = crypt ]; then
+    rclone cryptcheck "$latest" "$RCLONE_REMOTE/$(basename "$latest")" --one-way
+  else
+    rclone check "$latest" "$RCLONE_REMOTE/$(basename "$latest")" --one-way
+  fi
   log "remote retention: delete folders older than $REMOTE_KEEP_DAYS days"
   rclone delete "$RCLONE_REMOTE" --min-age "${REMOTE_KEEP_DAYS}d" && rclone rmdirs "$RCLONE_REMOTE" --leave-root
 else

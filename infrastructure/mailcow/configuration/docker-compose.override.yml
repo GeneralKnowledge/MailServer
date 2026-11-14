@@ -1,0 +1,10 @@
+# Copy to /opt/mailcow-dockerized/docker-compose.override.yml (merge by hand if
+# one already exists). mailcow keeps this file out of git, so updates leave it.
+# Then: docker compose up -d sogo-mailcow
+services:
+  sogo-mailcow:
+    volumes:
+      # SOGo links a precompiled theme (its blue-green) that outranks the
+      # palette in custom-theme.js. Replace it with an empty file written by
+      # scripts/apply-branding.sh.
+      - ./data/conf/sogo/custom-theme-default.css:/usr/local/lib/GNUstep/SOGo/WebServerResources/css/theme-default.css:z

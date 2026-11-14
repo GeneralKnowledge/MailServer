@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 270 64" width="270" height="64">
+  <rect width="64" height="64" rx="14" fill="#4b2a63"/>
+  <path d="M15 50 L32 13 L49 50" fill="none" stroke="#ffffff" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M20.5 33 L32 41.5 L43.5 33" fill="none" stroke="#d9a441" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="80" y="43" font-family="Georgia, 'Times New Roman', serif" font-size="32" fill="#ece7f1" letter-spacing="0.5">Avedeus</text>
+  <text x="199" y="43" font-family="Georgia, 'Times New Roman', serif" font-size="32" fill="#d9a441" font-style="italic">Mail</text>
+</svg>

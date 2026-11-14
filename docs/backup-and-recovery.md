@@ -57,9 +57,17 @@ your password manager. Without it the off-site backups can't be decrypted.
    sudo /opt/MailServer/scripts/restore.sh fetch mailcow-YYYY-MM-DD-HH-MM-SS
    sudo /opt/MailServer/scripts/restore.sh mailcow          # choose that folder, then "all"
    ```
+   The `mailcow` step fills in `DOCKER_COMPOSE_VERSION` if `generate_config.sh`
+   left it empty (mailcow's restore refuses to run otherwise), and afterwards
+   re-runs `docker compose up -d`, because mailcow's helper restarts mailcow
+   without `docker-compose.override.yml`.
 3. Unpack `extras/mailcow-custom.tgz` over `/opt/mailcow-dockerized` if the
-   nginx/SOGo customisations are missing; restart mailcow.
+   nginx/SOGo customisations, the login-page stylesheet or
+   `docker-compose.override.yml` are missing; then `docker compose up -d`.
+   (The login-page logos and names are in Redis, which the mailcow restore
+   brings back.)
 4. Registration: `sudo /opt/MailServer/scripts/restore.sh registration mailcow-YYYY-…`
+   (works on an empty volume too; it creates the container if needed).
 5. Run `scripts/health-check.sh` and the checks in
    [email-testing.md](email-testing.md).
 
@@ -69,4 +77,4 @@ The project isn't complete until at least one restore has succeeded.
 
 | Date | Backup used | Target | Result |
 |---|---|---|---|
-| | | | |
+| 2026-11-14 | Rehearsal backup, fetched from an rclone crypt remote | Local rehearsal mailcow (x86, not the real server), all volumes deleted first | Mailboxes, alias, messages and invitations restored; IMAP/SMTP login and a new sign-up worked afterwards. See [rehearsal-2026-11-14.md](rehearsal-2026-11-14.md). Still to do on the real server. |

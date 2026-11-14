@@ -78,16 +78,28 @@ sudo /opt/MailServer/scripts/health-check.sh mail.example.com
            /opt/mailcow-dockerized/data/conf/nginx/
    cd /opt/mailcow-dockerized && sudo docker compose restart nginx-mailcow
    ```
-5. **Branding.** Edit `/opt/MailServer/branding/`, then
-   `sudo /opt/MailServer/scripts/apply-branding.sh` and rebuild the app
-   (`docker compose up -d --build` in `infrastructure/registration`).
+5. **Branding.** Edit `/opt/MailServer/branding/` if needed, then
+   ```sh
+   sudo /opt/MailServer/scripts/apply-branding.sh       # writes the files the override below mounts
+   sudo cp /opt/MailServer/infrastructure/mailcow/configuration/docker-compose.override.yml \
+           /opt/mailcow-dockerized/                     # merge by hand if one exists
+   cd /opt/mailcow-dockerized && sudo docker compose up -d
+   cd /opt/MailServer/infrastructure/registration && sudo docker compose up -d --build
+   ```
+   Run `apply-branding.sh` before the first `up -d` with the override, or
+   Docker creates a directory where the empty CSS file should be. The script
+   brands the invite site, SOGo, and mailcow's own login page (logo, names,
+   plum buttons), which is where `/SOGo` sends people to sign in.
 6. Open `https://mail.example.com/join/admin`, sign in, create a test
    invitation, register with it, then log in to SOGo with the new address.
 
 ## Updates
 
 - **mailcow:** `cd /opt/mailcow-dockerized && sudo ./update.sh --check`, then
-  `sudo ./update.sh` after a backup. Re-run the health check.
+  `sudo ./update.sh` after a backup. Then re-run
+  `sudo /opt/MailServer/scripts/apply-branding.sh`: mailcow tracks the SOGo
+  theme and logo files in git, and `update.sh` merges with "theirs", so an
+  upstream change to them replaces ours. Re-run the health check.
 - **Registration app:** `cd /opt/MailServer && sudo git pull &&
   cd infrastructure/registration && sudo docker compose up -d --build`.
 - **Ubuntu:** `unattended-upgrades` installs security updates; reboot when
