@@ -1,0 +1,37 @@
+# Invite registration app, deployed separately from mailcow.
+# It joins mailcow's Docker network so that:
+#   * mailcow's nginx can proxy https://mail.<domain>/join/ to it, and
+#   * it can reach the mailcow API at nginx-mailcow without leaving the host.
+# mailcow updates don't touch this project.
+name: registration
+
+services:
+  registration:
+    build: ../../registration
+    image: mailserver-registration:local
+    env_file: .env
+    restart: unless-stopped
+    volumes:
+      - registration-data:/data
+    networks:
+      mailcow:
+        # Fixed address, so the mailcow API key can be allow-listed to it.
+        # mailcow itself uses .248-.254 for fixed addresses.
+        ipv4_address: ${IPV4_NETWORK:-172.22.1}.240
+        aliases: [registration]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+volumes:
+  registration-data:
+
+networks:
+  mailcow:
+    external: true
+    name: mailcowdockerized_mailcow-network

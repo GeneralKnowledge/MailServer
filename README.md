@@ -13,18 +13,27 @@ the mailcow API.
 
 | Milestone | State |
 |---|---|
-| M0 Environment validation | Desk review done; server inspection pending |
-| M1 mailcow installation | Planned |
-| M2 Email functionality | – |
-| M3 Invitation registration | Extension evaluated: build own FastAPI app |
-| M4 Production preparation | – |
+| M0 Environment validation | Desk review done; server inspection pending (needs domain + server access) |
+| M1 mailcow installation | Plan and `scripts/setup.sh` ready; not run |
+| M2 Email functionality | DNS plan and test checklist ready; not run |
+| M3 Invitation registration | App built and tested against a simulated mailcow API; real API check pending |
+| M4 Production preparation | Backup/restore/health scripts and docs ready; off-site target and restore test pending |
+
+Nothing has been deployed yet. Placeholder branding is in `branding/`.
 
 ## Contents
 
 - [docs/m0-readiness-report.md](docs/m0-readiness-report.md) – readiness report
 - [docs/m1-plan.md](docs/m1-plan.md) – M1 installation plan
 - [docs/signup-extension-evaluation.md](docs/signup-extension-evaluation.md) – MediaLab Sign-up evaluation
-- [scripts/m0-inspect.sh](scripts/m0-inspect.sh) – read-only server inspection
+- [docs/architecture.md](docs/architecture.md), [deployment.md](docs/deployment.md),
+  [dns-configuration.md](docs/dns-configuration.md), [email-testing.md](docs/email-testing.md),
+  [administration.md](docs/administration.md), [security.md](docs/security.md),
+  [backup-and-recovery.md](docs/backup-and-recovery.md)
+- [registration/](registration/) – invite website and admin (FastAPI)
+- [infrastructure/](infrastructure/) – compose file for the app, nginx and SOGo files for mailcow
+- [branding/](branding/) – name, colours, logos for the invite site and webmail
+- [scripts/](scripts/) – `m0-inspect.sh`, `setup.sh`, `health-check.sh`, `backup.sh`, `restore.sh`, `apply-branding.sh`
 
 ## Running the M0 inspection
 

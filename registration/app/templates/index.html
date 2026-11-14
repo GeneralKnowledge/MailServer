@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Join {{ brand }}{% endblock %}
+{% block content %}
+<h1>Join {{ brand }}</h1>
+<p>{{ brand }} is invitation only. If someone sent you an invitation link, open it. If you have a code, enter it below.</p>
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="{{ base }}/">
+  <label for="code">Invitation code</label>
+  <input id="code" name="code" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+  <button type="submit">Continue</button>
+</form>
+<p class="muted">Already have an account? <a href="{{ webmail_url }}">Sign in to webmail</a>.</p>
+{% endblock %}

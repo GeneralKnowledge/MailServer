@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% block title %}{{ brand }}{% endblock %}</title>
+  <link rel="icon" href="{{ base }}/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ base }}/static/brand.css">
+  <link rel="stylesheet" href="{{ base }}/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <a href="{{ base }}/" class="brand"><img src="{{ base }}/static/logo.svg" alt="" height="32"><span>{{ brand }}</span></a>
+  </header>
+  <main class="card">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="foot">Invitation only · <a href="{{ webmail_url }}">Webmail</a></footer>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

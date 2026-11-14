@@ -1,0 +1,18 @@
+# Copy to /opt/mailcow-dockerized/data/conf/nginx/site.registration.custom
+# mailcow includes site.*.custom inside its main server block and keeps these
+# files out of git, so updates don't remove it.
+# Then: docker compose restart nginx-mailcow
+#
+# Proxies https://mail.<domain>/join/ to the registration container.
+# The variable + resolver means nginx still starts if the app is down.
+
+location /join/ {
+    resolver 127.0.0.11 valid=30s ipv6=off;
+    set $registration_upstream http://registration:8000;
+    proxy_pass $registration_upstream;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_read_timeout 60s;
+    client_max_body_size 64k;
+}

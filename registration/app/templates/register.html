@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Create your address · {{ brand }}{% endblock %}
+{% block content %}
+<h1>Create your email address</h1>
+<p class="muted">Invitation valid until {{ invite.expires_at | ts }}. Mailbox size {{ (invite.quota_mb / 1024) | round(1) }} GB.</p>
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="{{ base }}/register" id="register" data-check="{{ base }}/check">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="token" value="{{ token }}">
+
+  <label for="username">Choose your address</label>
+  <div class="address">
+    <input id="username" name="username" value="{{ form.username if form else '' }}" required
+           minlength="3" maxlength="32" autocomplete="off" autocapitalize="off" spellcheck="false"
+           pattern="[a-z0-9]([a-z0-9._\-]*[a-z0-9])?">
+    <span>@{{ domain }}</span>
+  </div>
+  <p class="hint" id="username-status" aria-live="polite">Lowercase letters, numbers, dots, hyphens and underscores.</p>
+
+  <label for="display_name">Your name <span class="muted">(optional, shown to people you email)</span></label>
+  <input id="display_name" name="display_name" value="{{ form.display_name if form else '' }}" maxlength="100" autocomplete="name">
+
+  <label for="password">Password</label>
+  <input id="password" name="password" type="password" required minlength="{{ min_password }}" maxlength="128" autocomplete="new-password">
+  <p class="hint">At least {{ min_password }} characters, using three of: lowercase, uppercase, numbers, symbols. Or a long passphrase.</p>
+
+  <label for="password_confirm">Repeat password</label>
+  <input id="password_confirm" name="password_confirm" type="password" required maxlength="128" autocomplete="new-password">
+
+  <button type="submit">Create my address</button>
+</form>
+<p class="muted">Your address is permanent. Your invitation can only be used once.</p>
+{% endblock %}
+{% block scripts %}<script src="{{ base }}/static/check.js" defer></script>{% endblock %}

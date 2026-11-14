@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Welcome · {{ brand }}{% endblock %}
+{% block content %}
+<h1>Your address is ready</h1>
+<p class="big">{{ address }}</p>
+<p><a class="button" href="{{ webmail_url }}">Open webmail</a></p>
+<p>Sign in with your full address and the password you just chose.</p>
+<details>
+  <summary>Use a mail app instead (phone or computer)</summary>
+  <table class="settings">
+    <tr><th>Username</th><td>{{ address }}</td></tr>
+    <tr><th>Incoming (IMAP)</th><td>{{ webmail_url | replace("https://", "") }}, port 993, SSL/TLS</td></tr>
+    <tr><th>Outgoing (SMTP)</th><td>{{ webmail_url | replace("https://", "") }}, port 465 SSL/TLS (or 587 STARTTLS)</td></tr>
+  </table>
+  <p class="muted">Most apps set this up automatically when you enter your address and password.</p>
+</details>
+<p class="muted">We can't recover a forgotten password automatically. Contact the person who invited you if you lose it.</p>
+{% endblock %}
