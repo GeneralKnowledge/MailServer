@@ -4,12 +4,26 @@
   angular.module('SOGo.Common').config(configure);
   configure.$inject = ['$mdThemingProvider'];
   function configure($mdThemingProvider) {
+    // Dark mode: the choice made on the invite site (same origin, key "mail-theme"),
+    // otherwise follow the device setting.
+    var dark = false;
+    try {
+      var pref = window.localStorage.getItem('mail-theme');
+      dark = (pref === 'dark') || ((!pref || pref === 'auto') &&
+             window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    } catch (e) {}
     $mdThemingProvider.definePalette('brand-primary', {"50": "EDEAEF", "100": "D2CAD8", "200": "AE9FB9", "300": "8A759A", "400": "664A7A", "500": "4B2A63", "600": "422557", "700": "38204A", "800": "2E1A3D", "900": "261532", "A100": "B7AAC1", "A200": "816A92", "A400": "4B2A63", "A700": "3C224F", "contrastDefaultColor": "light", "contrastDarkColors": ["50", "100"]});
     $mdThemingProvider.definePalette('brand-accent', {"50": "F8F3EA", "100": "EDE1CA", "200": "DFC9A0", "300": "D1B075", "400": "C3984B", "500": "B8862B", "600": "A27626", "700": "8A6420", "800": "72531B", "900": "5C4316", "A100": "E3CFAA", "A200": "CDAA6B", "A400": "B8862B", "A700": "936B22", "contrastDefaultColor": "light", "contrastDarkColors": ["50", "100", "200", "300", "A100"]});
-    $mdThemingProvider.theme('default')
+    $mdThemingProvider.definePalette('brand-night', {"50": "ECE7F1", "100": "D6CEDF", "200": "B3A9BF", "300": "8F849E", "400": "6C6179", "500": "4D4459", "600": "3A3245", "700": "2B2434", "800": "1F1A26", "900": "141118", "A100": "2B2434", "A200": "1F1A26", "A400": "141118", "A700": "0E0B11", "contrastDefaultColor": "light", "contrastDarkColors": ["50", "100", "200", "300"]});
+    var theme = $mdThemingProvider.theme('default')
       .primaryPalette('brand-primary', {'default': '500', 'hue-1': '300', 'hue-2': '700', 'hue-3': 'A700'})
-      .accentPalette('brand-accent', {'default': '500', 'hue-1': '300', 'hue-2': '700', 'hue-3': 'A700'})
-      .backgroundPalette('grey');
+      .accentPalette('brand-accent', {'default': '500', 'hue-1': '300', 'hue-2': '700', 'hue-3': 'A700'});
+    if (dark) {
+      theme.backgroundPalette('brand-night').dark();
+      document.documentElement.classList.add('mail-dark');
+    } else {
+      theme.backgroundPalette('grey');
+    }
     $mdThemingProvider.generateThemesOnDemand(false);
   }
 })();

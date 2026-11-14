@@ -6,12 +6,14 @@
   <meta name="robots" content="noindex, nofollow">
   <title>{% block title %}{{ brand }}{% endblock %}</title>
   <link rel="icon" href="{{ base }}/static/favicon.svg" type="image/svg+xml">
+  <script src="{{ base }}/static/theme.js"></script>
   <link rel="stylesheet" href="{{ base }}/static/brand.css">
   <link rel="stylesheet" href="{{ base }}/static/style.css">
 </head>
 <body>
   <header class="top">
     <a href="{{ base }}/" class="brand"><img src="{{ base }}/static/logo.svg" alt="" height="32"><span>{{ brand }}</span></a>
+    <button type="button" id="theme-toggle" class="theme-toggle" hidden>Theme</button>
   </header>
   <main class="card">
     {% block content %}{% endblock %}

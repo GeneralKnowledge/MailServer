@@ -24,3 +24,15 @@ Current brand (2026-11-14): **Avedeus Mail**. Plum `#4b2a63` with antique gold `
 - **mailcow admin/login page:** set by hand in the mailcow UI under
   *System → Configuration → Options → Customize*: upload `logo-full.svg` as the
   main logo, and set the page title and login text to the brand name.
+
+## Dark mode
+
+- **Invite website:** follows the device setting by default; the *Theme* button
+  in the header cycles auto → dark → light and remembers the choice
+  (browser `localStorage`, key `mail-theme`).
+- **SOGo webmail:** the generated `custom-theme.js` switches SOGo's Angular
+  Material theme to a dark plum-grey palette when the device is in dark mode,
+  or when the visitor chose *dark* on the invite site (same origin, same
+  `mail-theme` key). Checked only as valid JavaScript so far; it must be
+  looked at in a running SOGo, which may need small CSS touch-ups via
+  mailcow's `data/conf/sogo/custom-sogo.js`.
