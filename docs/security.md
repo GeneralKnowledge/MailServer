@@ -6,7 +6,8 @@
 | Host | `setup.sh`: SSH keys only, no root login, MaxAuthTries 3 (only applied when a key is present, to avoid lock-out; written to `sshd_config.d/01-mailserver.conf` so it wins over image defaults, and checked with `sshd -T`); mailcow checked out at a release tag, never `master`; automatic security updates with a 04:30 reboot when a kernel update needs it; 2 GiB swap. |
 | TLS | Let's Encrypt via mailcow ACME for all web, SMTP submission and IMAP. |
 | mailcow admin | Default password changed at install; TOTP 2FA required. |
-| mailcow API | Read-write key allow-listed to the registration container's IP (172.22.1.240) only; lives in `.env` (mode 600), never sent to browsers. |
+| mailcow API | Read-write key allow-listed to the registration container's IP (172.30.240.10) only; lives in `.env` (mode 600), never sent to browsers. |
+| Container network | Our containers are **not** on mailcow's network: Postfix trusts every address there to send mail without a password (`mynetworks_style = subnet`). They sit on `avedeus-edge`, a small internal Docker network that nginx-mailcow also joins (via `docker-compose.override.yml`), so they can reach nginx and nothing else, not even the internet. |
 | Invite admin | argon2 password + TOTP; a TOTP code works only once (replay blocked); 5 attempts / 15 min / IP **and** 30 / hour across all IPs; server-side sessions (sign-out really ends the session, *Sign out everywhere* ends all), 1 h idle and 8 h absolute limit; `ADMIN_ALLOWED_IPS` (required unless `ADMIN_ALLOW_ANY=1`) makes `/join/admin` return 404 to everyone else, which also stops strangers tripping the all-IPs login limit; sign-in log including failures on the admin page. Event-log rows (with client IPs) are deleted after `EVENT_RETENTION_DAYS` (180). A malformed `ADMIN_TOTP_SECRET` stops the app at start-up. |
 | Invitations | 192-bit random tokens, stored only as SHA-256; single use; expiry; revocation; atomic claim prevents double use, and each claim carries a random id so only the request holding it can finish it; an invitation can't be revoked while someone is signing up with it (if that happens anyway after a timeout, the admin page flags it). A new invitation's link is shown once from server memory, never stored in the cookie. |
 | Registration | 10 attempts / hour / IP; username check requires a valid invitation (no enumeration); CSRF tokens; reserved names; password policy (12+ chars, 3 classes or 20+ char passphrase), plus mailcow's own policy. |
@@ -23,7 +24,7 @@ These live in mailcow's database, so they are steps in
 - Admin: change `moohoo`, turn on TOTP, and use a separate admin account name if preferred.
 - *System → Configuration → Options → Password policy*: minimum length 12, require
   lower/upper/number (matches the invite site).
-- *Access → API*: read-write key only, allowed from `172.22.1.240` only; leave
+- *Access → API*: read-write key only, allowed from `172.30.240.10` only; leave
   the read-only key disabled.
 - Domain *avedeus.ovh*: DKIM 2048-bit; set mailbox count and total quota limits
   so a bug can't create unlimited mailboxes.

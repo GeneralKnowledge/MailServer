@@ -134,7 +134,7 @@ Then set the API key that the invite site will use (mailcow reads it at start):
 
 ```sh
 KEY=$(openssl rand -hex 32); echo "Save this API key: $KEY"
-sudo sed -i "s|^#\?API_KEY=.*|API_KEY=$KEY|; s|^#\?API_ALLOW_FROM=.*|API_ALLOW_FROM=172.22.1.240|" mailcow.conf
+sudo sed -i "s|^#\?API_KEY=.*|API_KEY=$KEY|; s|^#\?API_ALLOW_FROM=.*|API_ALLOW_FROM=172.30.240.10|" mailcow.conf
 grep -E '^(MAILCOW_HOSTNAME|API_ALLOW_FROM|IMAP_PORT|POP_PORT|POPS_PORT|ENABLE_IPV6|SKIP_CLAMD)=' mailcow.conf
 ```
 
@@ -158,7 +158,7 @@ At `https://mail.avedeus.ovh/admin` (user `admin`, password `moohoo`):
 3. *System → Configuration → Options → Password policy*: length 12, require
    lowercase, uppercase and numbers.
 4. *System → Configuration → Access → API*: confirm the read-write key shows
-   `172.22.1.240` only, and the read-only key is off.
+   `172.30.240.10` only, and the read-only key is off.
 
 **Check B:** `sudo /opt/MailServer/scripts/health-check.sh` ends with `HEALTHY`
 (the registration line fails until Part D and the backup lines until Part E;
@@ -239,6 +239,7 @@ you set `ADMIN_ALLOW_ANY=1`; if your home IP changes, update it here and run
 `docker compose up -d`, and use `python -m app.cli` over SSH meanwhile.
 
 ```sh
+sudo /opt/MailServer/scripts/create-edge-network.sh   # avedeus-edge, must exist before mailcow restarts
 sudo /opt/MailServer/scripts/apply-branding.sh
 sudo cp /opt/MailServer/infrastructure/mailcow/configuration/nginx/site.registration.custom \
         /opt/mailcow-dockerized/data/conf/nginx/

@@ -1,10 +1,11 @@
 # Invite registration app, deployed separately from mailcow.
-# It joins mailcow's Docker network so that:
-#   * mailcow's nginx can proxy https://mail.<domain>/join/ to it, and
-#   * it can reach the mailcow API at nginx-mailcow without leaving the host.
-# mailcow updates don't touch this project.
-name: registration
-
+# It sits on the small internal avedeus-edge network (scripts/create-edge-network.sh),
+# which mailcow's nginx also joins (see the mailcow docker-compose.override.yml):
+#   * mailcow's nginx proxies https://mail.<domain>/join/ to it, and
+#   * it reaches the mailcow API through nginx-mailcow on that network.
+# It is deliberately NOT on mailcow's own network: Postfix trusts every
+# address there to send mail without a password. On avedeus-edge it has no
+# route to the internet either. mailcow updates don't touch this project.
 services:
   registration:
     build: ../../registration
@@ -14,10 +15,10 @@ services:
     volumes:
       - registration-data:/data
     networks:
-      mailcow:
-        # Fixed address, so the mailcow API key can be allow-listed to it.
-        # mailcow itself uses .248-.254 for fixed addresses.
-        ipv4_address: ${IPV4_NETWORK:-172.22.1}.240
+      edge:
+        # Fixed address: nginx forwards client IPs only from .2, and the
+        # mailcow API key is allow-listed to this one.
+        ipv4_address: 172.30.240.10
         aliases: [registration]
     read_only: true
     tmpfs: [/tmp]
@@ -33,6 +34,6 @@ volumes:
   registration-data:
 
 networks:
-  mailcow:
+  edge:
     external: true
-    name: mailcowdockerized_mailcow-network
+    name: avedeus-edge

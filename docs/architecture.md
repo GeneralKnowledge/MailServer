@@ -12,10 +12,10 @@
 │   └ nginx-mailcow ── /           → mailcow UI / SOGo (/SOGo)             │
 │                    ── /api/v1     → mailcow API (key IP-allow-listed)    │
 │                    ── /join/      → registration:8000 (site.*.custom)    │
-│                                   ▲                                      │
+│                                   ▲  avedeus-edge (internal, 172.30.240/24)│
 │  /opt/MailServer/infrastructure/registration (separate compose project)  │
-│   └ registration (FastAPI + SQLite volume), fixed IP 172.22.1.240        │
-│       on mailcow's network; calls https://nginx-mailcow/api/v1           │
+│   └ registration (FastAPI + SQLite volume), 172.30.240.10, NOT on        │
+│       mailcow's network; calls https://nginx-mailcow/api/v1              │
 └──────────────────────────────────────────────────────────────────────────┘
         backups ──rclone (encrypted)──► off-site storage
 ```
@@ -53,3 +53,15 @@ The mailbox password goes straight to mailcow and is never stored by the app.
 mailcow's nginx already terminates TLS with Let's Encrypt for
 `mail.<domain>`. The invite site is a path on the same host, so a second
 proxy would only add another certificate manager and port conflicts.
+
+## Networks
+
+| Network | Members | Why |
+|---|---|---|
+| mailcow's own (`172.22.1.0/24`) | all mailcow containers | Postfix trusts this whole subnet to send mail without a password, so nothing of ours joins it. |
+| `avedeus-edge` (`172.30.240.0/24`, internal) | nginx-mailcow `.2`, registration `.10` | nginx proxies `/join/` here, and our containers reach the mailcow API through nginx. Internal: no route to the internet. Created by `scripts/create-edge-network.sh`; nginx joins it via mailcow's `docker-compose.override.yml`. |
+
+To check on the server (part of the rehearsal): from the registration
+container, `postfix-mailcow:25` and `redis-mailcow` must not resolve or
+connect, the internet must be unreachable, and `https://nginx-mailcow/api/v1`
+must answer. mailcow's own published ports must still work from outside.

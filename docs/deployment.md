@@ -60,7 +60,7 @@ sudo /opt/MailServer/scripts/health-check.sh mail.example.com
 
 1. **API key.** mailcow UI → System → Configuration → Access → API:
    enable the **read-write** key, set *Allow API access from these IPs* to
-   `172.22.1.240`, copy the key. (mailcow keys aren't scoped to endpoints; the
+   `172.30.240.10`, copy the key. (mailcow keys aren't scoped to endpoints; the
    IP allow-list and keeping the key server-side are the restriction.)
 2. **Config.**
    ```sh
