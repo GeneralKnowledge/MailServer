@@ -43,7 +43,8 @@ Nothing has been deployed to the real server yet. The priority is getting M0–M
 ## Roadmap
 
 M5–M7 come from an outside review (2026-11-15). They are **planned, not
-built**. The plan is to make M0–M4 boringly reliable on the real server first.
+built**. Detailed plan with components, order and open decisions:
+[docs/roadmap-m5-m7.md](docs/roadmap-m5-m7.md). The plan is to make M0–M4 boringly reliable on the real server first.
 
 **M5 – Operations and observability**
 - Admin-only operations dashboard (not a new public service): server and
