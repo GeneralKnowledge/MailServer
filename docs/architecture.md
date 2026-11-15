@@ -28,7 +28,7 @@
 | Invite website + invite admin | this repo, `registration/` | `infrastructure/registration/docker-compose.yml` |
 | Proxy rule for `/join/` | this repo | copied to `data/conf/nginx/site.registration.custom` |
 | Webmail branding | this repo, `branding/` | copied to `data/conf/sogo/custom-*` |
-| Backups | mailcow helper + `scripts/backup.sh` | `/var/backups/mailcow` → off-site |
+| Backups | mailcow helper + `scripts/backup.sh` | `/var/backups/mailserver/mailcow` → off-site |
 
 All files we add inside the mailcow tree are ones mailcow's `.gitignore`
 excludes, so `update.sh` leaves them alone.
