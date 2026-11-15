@@ -54,7 +54,13 @@ def main(argv=None) -> int:
     from .invites import Invitations
     db = _db(); inv = Invitations(db)
     if a.cmd == "create-invite":
-        token, i = inv.create(quota_mb=a.quota, days=a.days, note=a.note, ip="cli")
+        max_quota = int(os.environ.get("MAX_QUOTA_MB", 10240))
+        if not 1 <= a.quota <= max_quota:
+            print(f"Quota must be 1-{max_quota} MB (MAX_QUOTA_MB).", file=sys.stderr); return 1
+        try:
+            token, i = inv.create(quota_mb=a.quota, days=a.days, note=a.note, ip="cli")
+        except ValueError as e:
+            print(e, file=sys.stderr); return 1
         public = os.environ.get("PUBLIC_URL") or f"https://mail.{os.environ.get('MAIL_DOMAIN', 'example.com')}"
         base = public.rstrip("/") + "/" + os.environ.get("BASE_PATH", "/join").strip("/")
         print(f"Invitation #{i.id}\nLink: {base}/i/{token}\nCode: {token}")

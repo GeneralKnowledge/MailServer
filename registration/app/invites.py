@@ -3,11 +3,14 @@
 Redemption is two-phase so that a failed mailcow call never uses up an
 invitation and two people can't redeem one invitation at the same time:
 
-1. ``claim``  atomically marks a valid invitation as "being provisioned".
+1. ``claim``  atomically marks a valid invitation as "being provisioned" and
+   returns a random claim id.
 2. The mailbox is created through the mailcow API.
-3. ``redeem`` on success, or ``release`` on failure.
+3. ``redeem`` on success, or ``release`` on failure, both with that claim id,
+   so a request can only finish the claim it holds.
 
-A claim left behind by a crash expires after CLAIM_TIMEOUT seconds.
+A claim left behind by a crash expires after CLAIM_TIMEOUT seconds. An
+invitation that is being provisioned can't be revoked.
 """
 
 from __future__ import annotations
@@ -99,29 +102,43 @@ class Invitations:
             return None
         return _to_inv(row, self.db.now())
 
-    def claim(self, inv_id: int) -> bool:
+    def claim(self, inv_id: int) -> str | None:
+        """Atomically claim a usable invitation. Returns the claim id, or None."""
         now = self.db.now()
+        claim_id = secrets.token_urlsafe(16)
         cur = self.db.execute(
-            """UPDATE invitations SET claimed_at=?
+            """UPDATE invitations SET claimed_at=?, claim_id=?
                WHERE id=? AND redeemed_at IS NULL AND revoked_at IS NULL AND expires_at>?
                  AND (claimed_at IS NULL OR claimed_at<=?)""",
-            (now, inv_id, now, now - CLAIM_TIMEOUT),
+            (now, claim_id, inv_id, now, now - CLAIM_TIMEOUT),
+        )
+        return claim_id if cur.rowcount == 1 else None
+
+    def release(self, inv_id: int, claim_id: str) -> None:
+        self.db.execute(
+            "UPDATE invitations SET claimed_at=NULL, claim_id=NULL WHERE id=? AND claim_id=? AND redeemed_at IS NULL",
+            (inv_id, claim_id),
+        )
+
+    def redeem(self, inv_id: int, claim_id: str, address: str) -> bool:
+        """Mark the invitation used. False if this request no longer holds the
+        claim (it timed out and was taken over) or the invitation was revoked."""
+        cur = self.db.execute(
+            """UPDATE invitations SET redeemed_at=?, redeemed_address=?, claimed_at=NULL, claim_id=NULL
+               WHERE id=? AND claim_id=? AND redeemed_at IS NULL AND revoked_at IS NULL""",
+            (self.db.now(), address, inv_id, claim_id),
         )
         return cur.rowcount == 1
 
-    def release(self, inv_id: int) -> None:
-        self.db.execute("UPDATE invitations SET claimed_at=NULL WHERE id=? AND redeemed_at IS NULL", (inv_id,))
-
-    def redeem(self, inv_id: int, address: str) -> None:
-        self.db.execute(
-            "UPDATE invitations SET redeemed_at=?, redeemed_address=?, claimed_at=NULL WHERE id=?",
-            (self.db.now(), address, inv_id),
-        )
-
     def revoke(self, inv_id: int, ip: str | None = None) -> bool:
+        """Revoke an unused invitation. Refused while a sign-up is in progress
+        (the mailbox may already exist); try again once it has finished."""
+        now = self.db.now()
         cur = self.db.execute(
-            "UPDATE invitations SET revoked_at=? WHERE id=? AND redeemed_at IS NULL AND revoked_at IS NULL",
-            (self.db.now(), inv_id),
+            """UPDATE invitations SET revoked_at=?
+               WHERE id=? AND redeemed_at IS NULL AND revoked_at IS NULL
+                 AND (claimed_at IS NULL OR claimed_at<=?)""",
+            (now, inv_id, now - CLAIM_TIMEOUT),
         )
         if cur.rowcount:
             self.db.log("invite_revoked", invitation_id=inv_id, ip=ip)

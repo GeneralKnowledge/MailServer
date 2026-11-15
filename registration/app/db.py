@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS invitations (
     expires_at       INTEGER NOT NULL,
     revoked_at       INTEGER,
     claimed_at       INTEGER,                   -- set while a registration is being provisioned
+    claim_id         TEXT,                      -- random id of the request holding the claim
     redeemed_at      INTEGER,
     redeemed_address TEXT
 );
@@ -68,6 +69,12 @@ class Database:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
             self._conn.executescript(SCHEMA)
+            self._migrate()
+
+    def _migrate(self) -> None:
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(invitations)")}
+        if "claim_id" not in cols:  # databases created before claim ids existed
+            self._conn.execute("ALTER TABLE invitations ADD COLUMN claim_id TEXT")
 
     def now(self) -> int:
         return int(self.clock())
@@ -89,6 +96,13 @@ class Database:
             "INSERT INTO events(at, kind, invitation_id, address, detail, ip) VALUES (?,?,?,?,?,?)",
             (self.now(), kind, invitation_id, address, detail[:2000], ip),
         )
+
+    def prune(self, *, event_days: int, admin_session_seconds: int) -> None:
+        """Drop old event-log rows (they hold client IPs) and expired admin sessions."""
+        now = self.now()
+        if event_days > 0:
+            self.execute("DELETE FROM events WHERE at < ?", (now - event_days * 86400,))
+        self.execute("DELETE FROM admin_sessions WHERE created_at < ?", (now - admin_session_seconds,))
 
     def backup_to(self, dest: str) -> None:
         """Consistent online copy (used by scripts/backup.sh via the CLI)."""

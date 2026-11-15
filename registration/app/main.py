@@ -36,6 +36,8 @@ log = logging.getLogger("registration")
 HERE = Path(__file__).parent
 ADMIN_SESSION_SECONDS = 8 * 3600
 ADMIN_IDLE_SECONDS = 3600
+NEW_INVITE_REVEAL_SECONDS = 300  # a newly created invite link is shown once, within this time
+PRUNE_INTERVAL_SECONDS = 3600
 
 INVITE_PROBLEMS = {
     "redeemed": "This invitation has already been used.",
@@ -104,9 +106,18 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
 
     # ---- public ------------------------------------------------------------
 
+    last_prune = [0.0]
+
+    def maybe_prune() -> None:
+        now = clock()
+        if now - last_prune[0] >= PRUNE_INTERVAL_SECONDS:
+            last_prune[0] = now
+            db.prune(event_days=s.event_retention_days, admin_session_seconds=ADMIN_SESSION_SECONDS)
+
     @r.get("/healthz")
     def healthz():
         db.one("SELECT 1")
+        maybe_prune()  # the container health check calls this every 30 s
         return {"ok": True}
 
     @r.get("/", response_class=HTMLResponse)
@@ -176,7 +187,8 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
             return show_form(request, token, 400, error=err, form=form)
 
         inv = invites.find(token)
-        if not inv or not invites.claim(inv.id):
+        cid = invites.claim(inv.id) if inv else None
+        if not cid:
             # re-read for an accurate message
             inv = invites.find(token)
             return page(request, "index.html", 409 if inv else 404,
@@ -185,7 +197,7 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
         address = f"{name}@{s.mail_domain}"
         try:
             if mc.address_taken(address):
-                invites.release(inv.id)
+                invites.release(inv.id, cid)
                 return show_form(request, token, 409, error="That address is taken. Choose another username.", form=form)
             mc.add_mailbox(local_part=name, domain=s.mail_domain, password=password,
                            quota_mb=inv.quota_mb, name=display_name)
@@ -197,11 +209,8 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
                 except MailcowError:
                     created = False
                 if created:
-                    invites.redeem(inv.id, address)
-                    db.log("registered", invitation_id=inv.id, address=address,
-                           detail=f"confirmed after error: {e.detail}", ip=client)
-                    return page(request, "done.html", address=address)
-            invites.release(inv.id)
+                    return finish(request, inv.id, cid, address, client, f"confirmed after error: {e.detail}")
+            invites.release(inv.id, cid)
             db.log("provision_failed", invitation_id=inv.id, address=address, detail=f"{e.kind}: {e.detail}", ip=client)
             log.warning("provisioning failed for %s: %s", address, e)
             if e.kind == "taken":
@@ -213,8 +222,17 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
                         message="Something went wrong on our side. Your invitation has not been used; "
                                 "please try again later.")
 
-        invites.redeem(inv.id, address)
-        db.log("registered", invitation_id=inv.id, address=address, ip=client)
+        return finish(request, inv.id, cid, address, client)
+
+    def finish(request: Request, inv_id: int, cid: str, address: str, client: str, detail: str = ""):
+        # The mailbox exists at this point, so the user always sees success.
+        if invites.redeem(inv_id, cid, address):
+            db.log("registered", invitation_id=inv_id, address=address, detail=detail, ip=client)
+        else:
+            db.log("provision_failed", invitation_id=inv_id, address=address, ip=client,
+                   detail="mailbox created, but the invitation was revoked or claimed again meanwhile; "
+                          "check this mailbox in mailcow")
+            log.warning("mailbox %s created without redeeming invitation #%s", address, inv_id)
         return page(request, "done.html", address=address)
 
     # ---- admin -------------------------------------------------------------
@@ -246,6 +264,24 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
         db.execute("UPDATE admin_sessions SET seen_at=? WHERE id_hash=?", (now, h))
         return True
 
+    # A newly created invitation's token is shown on the next admin page view
+    # only. It is held here in memory (one process by design), keyed by the
+    # admin session, never in the cookie: Starlette sessions are signed, not
+    # encrypted.
+    new_invites: dict[str, tuple[float, dict]] = {}
+
+    def stash_new_invite(request: Request, info: dict) -> None:
+        now = clock()
+        for k in [k for k, (at, _) in new_invites.items() if now - at > NEW_INVITE_REVEAL_SECONDS]:
+            del new_invites[k]
+        new_invites[_sid_hash(request.session["admin_sid"])] = (now, info)
+
+    def take_new_invite(request: Request) -> dict | None:
+        item = new_invites.pop(_sid_hash(request.session.get("admin_sid", "")), None)
+        if item and clock() - item[0] <= NEW_INVITE_REVEAL_SECONDS:
+            return item[1]
+        return None
+
     def to_login():
         return RedirectResponse(f"{s.base_path}/admin/login", status_code=303)
 
@@ -274,7 +310,7 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
         db.execute("INSERT INTO state(key, value) VALUES ('totp_last_step', ?) "
                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(step),))
         now = int(clock())
-        db.execute("DELETE FROM admin_sessions WHERE created_at < ?", (now - ADMIN_SESSION_SECONDS,))
+        db.prune(event_days=s.event_retention_days, admin_session_seconds=ADMIN_SESSION_SECONDS)
         sid = secrets.token_urlsafe(32)
         db.execute("INSERT INTO admin_sessions(id_hash, created_at, seen_at, ip) VALUES (?,?,?,?)",
                    (_sid_hash(sid), now, now, client))
@@ -303,7 +339,7 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
     def admin_home(request: Request):
         if not admin_ok(request):
             return to_login()
-        new = request.session.pop("new_invite", None)
+        new = take_new_invite(request)
         flash = request.session.pop("flash", None)
         failures = db.query("SELECT * FROM events WHERE kind='provision_failed' ORDER BY id DESC LIMIT 50")
         logins = db.query("SELECT * FROM events WHERE kind LIKE 'admin_login%' ORDER BY id DESC LIMIT 10")
@@ -325,8 +361,8 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
             request.session["flash"] = f"Quota must be 1–{s.max_quota_mb} MB and expiry 1–90 days."
             return RedirectResponse(f"{s.base_path}/admin", status_code=303)
         token, inv = invites.create(quota_mb=quota, days=days, note=note, ip=ip(request))
-        request.session["new_invite"] = {"id": inv.id, "link": f"{s.public_url}{s.base_path}/i/{token}",
-                                         "code": token, "expires": inv.expires_at}
+        stash_new_invite(request, {"id": inv.id, "link": f"{s.public_url}{s.base_path}/i/{token}",
+                                   "code": token, "expires": inv.expires_at})
         return RedirectResponse(f"{s.base_path}/admin", status_code=303)
 
     @r.post("/admin/invites/{inv_id}/revoke")
@@ -335,7 +371,8 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
             return to_login()
         if csrf_ok(request.session, csrf):
             request.session["flash"] = (f"Invitation #{inv_id} revoked." if invites.revoke(inv_id, ip(request))
-                                        else f"Invitation #{inv_id} can't be revoked.")
+                                        else f"Invitation #{inv_id} can't be revoked: it has been used, "
+                                             "or someone is signing up with it right now (try again in a few minutes).")
         return RedirectResponse(f"{s.base_path}/admin", status_code=303)
 
     @r.post("/admin/invites/{inv_id}/extend")

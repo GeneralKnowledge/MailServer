@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import os
 from dataclasses import dataclass, field
 
@@ -69,6 +71,21 @@ class Settings:
     rl_login_per_15min: int = 5
     rl_login_global_per_hour: int = 30  # all IPs together; stops slow distributed guessing
 
+    # event log rows (which hold client IPs) older than this are deleted; 0 = keep forever
+    event_retention_days: int = 180
+
+
+def _check_totp_secret(secret: str) -> str:
+    """Fail at start-up, not at the first login, if the TOTP secret is unusable."""
+    s = secret.strip().replace(" ", "").upper()
+    try:
+        key = base64.b32decode(s + "=" * (-len(s) % 8))
+    except (binascii.Error, ValueError):
+        raise RuntimeError("ADMIN_TOTP_SECRET is not valid base32; create one with: python -m app.cli new-totp")
+    if len(key) < 16:
+        raise RuntimeError("ADMIN_TOTP_SECRET is too short (need at least 128 bits); use: python -m app.cli new-totp")
+    return s
+
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
     src = env if env is not None else os.environ
@@ -106,7 +123,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         secure_cookies=_bool(src, "SECURE_COOKIES", True),
         admin_username=req("ADMIN_USERNAME"),
         admin_password_hash=req("ADMIN_PASSWORD_HASH"),
-        admin_totp_secret=req("ADMIN_TOTP_SECRET"),
+        admin_totp_secret=_check_totp_secret(req("ADMIN_TOTP_SECRET")),
         admin_allowed_ips=src.get("ADMIN_ALLOWED_IPS", ""),
         default_quota_mb=_int(src, "DEFAULT_QUOTA_MB", 2048),
         max_quota_mb=_int(src, "MAX_QUOTA_MB", 10240),
@@ -118,4 +135,5 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         rl_invite_check_per_hour=_int(src, "RL_INVITE_CHECK_PER_HOUR", 30),
         rl_login_per_15min=_int(src, "RL_LOGIN_PER_15MIN", 5),
         rl_login_global_per_hour=_int(src, "RL_LOGIN_GLOBAL_PER_HOUR", 30),
+        event_retention_days=_int(src, "EVENT_RETENTION_DAYS", 180),
     )
