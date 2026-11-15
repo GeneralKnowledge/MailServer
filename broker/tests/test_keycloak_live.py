@@ -44,6 +44,33 @@ def test_live_create_find_refuse_and_delete(kc):
     assert kc.find_user(name) is None
 
 
+def test_live_lifecycle_disable_reset_logout_enable(kc):
+    """PR 16: the lifecycle calls against the real admin API, including that a
+    partial update leaves the rest of the user (email, attributes) alone."""
+    name = "live-" + uuid.uuid4().hex[:8]
+    uid = kc.create_user(username=name, email=f"{name}@example.test", password="Sunny-River-42x",
+                         attributes={"mailcow_template": "avedeus-user"})
+    try:
+        assert kc.get_user(uid) == {"enabled": True, "required_actions": []}
+        kc.set_enabled(uid, False)
+        kc.logout(uid)
+        assert kc.get_user(uid)["enabled"] is False
+        kc.require_password_reset(uid)
+        kc.require_password_reset(uid)
+        assert kc.get_user(uid)["required_actions"] == ["UPDATE_PASSWORD"]
+        kc.set_enabled(uid, True)
+        assert kc.get_user(uid) == {"enabled": True, "required_actions": ["UPDATE_PASSWORD"]}
+        full = kc._admin("GET", f"/users/{uid}").json()
+        assert full["email"] == f"{name}@example.test"
+        assert full["attributes"]["mailcow_template"] == ["avedeus-user"]
+    finally:
+        kc.delete_user(uid)
+    assert kc.get_user(uid) is None
+    with pytest.raises(KeycloakError) as e:
+        kc.set_enabled(uid, False)
+    assert e.value.kind == "not_found"
+
+
 @pytest.mark.skipif(not os.environ.get("PORTAL_OIDC_SECRET"), reason="needs PORTAL_OIDC_SECRET and MAIL_HOSTNAME")
 def test_live_sign_up_then_sign_in_through_the_portal():
     """PR 12 + PR 14 end to end against the real Keycloak: createAccount makes the

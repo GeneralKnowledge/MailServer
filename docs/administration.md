@@ -5,11 +5,10 @@
 | Task | Where |
 |---|---|
 | Create / revoke / extend invitations, see who registered, see failures | Admin console `https://<mail host>/console/` (with Keycloak, PR 15); until then `python -m app.cli` in the sign-up container ([admin-console.md](admin-console.md)) |
-| List accounts, read the audit log | Admin console (PR 15, read-only) |
-| Suspend a mailbox | mailcow UI → E-Mail → Configuration → Mailboxes → Edit → *Active: off* |
-| Change a password | same page, *Password* |
-| Change quota | same page, *Quota* |
-| Delete a mailbox | same page, Delete (deletes mail too, can't be undone) |
+| List accounts, read the audit log | Admin console (PR 15) |
+| Suspend, reactivate, change quota, ask for a new password, delete an account | Admin console → Accounts → the account (PR 16, audited; [below](#account-lifecycle-pr-16)). Without Keycloak: mailcow UI → E-Mail → Configuration → Mailboxes → Edit |
+| Set a password for an account without a Keycloak identity | mailcow UI, the mailbox's *Password* |
+| Delete a mailbox at once (no grace, no backup check) | mailcow UI, Delete. Avoid: the console's scheduled deletion keeps a backup and an audit trail |
 | Add an alias | E-Mail → Configuration → Aliases |
 | Mailbox usage | Mailboxes list (quota column) |
 | Spam settings | per-domain / global: Configuration → Rspamd; per-user in SOGo or mailcow user UI |
@@ -17,7 +16,44 @@
 | Mail queue | mailcow System → Queue manager |
 | Why didn't a message arrive? | Message trace (below; PR 34) |
 
-The admin console intentionally does **not** manage mailboxes yet (PR 16); mailcow does.
+Aliases, app passwords and every other mailbox setting stay in mailcow's admin; users,
+groups and sessions in Keycloak's.
+
+## Account lifecycle (PR 16)
+
+> **Implemented in code; not proven on server; not deployed** (the console
+> needs Keycloak, ADR 0006 gate). Decision record: [ADR 0021](adr/0021-account-lifecycle.md).
+
+On an account's page in the admin console:
+
+| Button | What happens |
+|---|---|
+| Suspend | Keycloak user disabled and signed out; mailcow "disallow login": nobody can sign in to webmail, mail apps (app passwords too) or the account page. **Mail keeps arriving** unless "also stop new mail" is ticked. |
+| Reactivate | Sign-in works again, app passwords included. |
+| Set quota | 1 MB up to `MAX_QUOTA_MB`, never below what the mailbox already uses. |
+| Ask for a new password | Keycloak asks at the next sign-in; open sessions end. Mail apps keep working (app passwords); suspend to stop them. |
+| Schedule deletion | Type the address to confirm. Suspended now (mail still arrives); deleted with all its mail after 30 days (`DELETION_GRACE_DAYS`), and only once a backup that started after you scheduled it has completed. |
+| Cancel the deletion | Back to how it was before (a suspended account stays suspended). |
+
+Every change is one audit event naming you, shown in the account's history.
+The deletion itself is done by the daily job, which alerts if a deletion fails
+or was stopped (for example because someone reactivated the mailbox in
+mailcow's admin):
+
+```sh
+sudo /opt/MailServer/scripts/purge-deleted.sh --dry-run   # what would be deleted now
+```
+
+Without the console (break-glass, from inside the broker container; audited
+as `admin-break-glass`, same checks as the console):
+
+```sh
+cd /opt/MailServer/infrastructure/registration
+sudo docker compose exec broker python -m broker.account show sam@mail.avedeus.ovh
+sudo docker compose exec broker python -m broker.account suspend sam@mail.avedeus.ovh   # --stop-receiving to refuse mail too
+sudo docker compose exec broker python -m broker.account quota sam@mail.avedeus.ovh 4096
+sudo docker compose exec broker python -m broker.account delete sam@mail.avedeus.ovh    # schedules; cancel-delete undoes
+```
 
 ## Message trace (PR 34)
 

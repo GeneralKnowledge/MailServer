@@ -1,6 +1,7 @@
-"""PR 15: the admin console. Fakes only (Keycloak token endpoint, control
+"""PR 15 and PR 16: the admin console. Fakes only (Keycloak token endpoint, control
 plane, the sign-up app's internal API). Not proven on a server."""
 
+import re
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -134,3 +135,73 @@ def test_settings(env):
         load_settings({**env, "PUBLIC_URL": "http://mx.example.com"})
     with pytest.raises(RuntimeError, match="not a valid"):
         load_settings({**env, "ADMIN_ALLOWED_IPS": "home"})
+
+
+# ---- PR 16: one account and its lifecycle ------------------------------------
+
+ACCOUNT = {"ok": True, "address": "alice@example.com", "name": "Alice", "quota_mb": 2048, "used_mb": 3,
+           "active": True, "state": "active", "identity": {"linked": True, "enabled": True,
+                                                           "password_reset_required": False},
+           "deletion": None, "history": [
+               {"time": "2026-11-15T10:00:00Z", "action": "account.quota", "outcome": "ok", "caller": "admin",
+                "actor": {"kind": "admin", "id": "admin-1"}, "changes": {"quota_mb": {"from": 1024, "to": 2048}},
+                "error_kind": None}]}
+
+
+def account_form(c):
+    page = c.client.get("/console/accounts/alice@example.com").text
+    return {"csrf": re.search(r'name="csrf" value="([^"]+)"', page).group(1),
+            "idem": re.search(r'name="idem" value="([^"]+)"', page).group(1)}, page
+
+
+def test_account_page_shows_state_history_and_actions(ctx):
+    sign_in(ctx)
+    ctx.cp.answers[("GET", "/v1/accounts/alice@example.com")] = (200, ACCOUNT)
+    form, page = account_form(ctx)
+    assert "2048 MB" in page and "account.quota" in page and "1024 → 2048" in page
+    assert "Suspend" in page and "Schedule deletion" in page and "Ask for a new password" in page
+    assert ctx.cp.calls[-1][2]["x-user-token"].startswith("access-")
+
+
+def test_suspend_from_the_console_carries_the_key_and_the_admin(ctx):
+    sign_in(ctx)
+    ctx.cp.answers[("GET", "/v1/accounts/alice@example.com")] = (200, ACCOUNT)
+    ctx.cp.answers[("POST", "/v1/accounts/alice@example.com/suspend")] = (200, {
+        "ok": True, "address": "alice@example.com", "state": "login_disabled", "identity": "disabled"})
+    form, _ = account_form(ctx)
+    r = ctx.client.post("/console/accounts/alice@example.com/suspend", data=form)
+    assert r.status_code == 303 and r.headers["location"] == "/console/accounts/alice@example.com"
+    method, path, headers, body, _ = ctx.cp.calls[-1]
+    assert (method, body) == ("POST", {"stop_receiving": False})
+    assert headers["idempotency-key"] == form["idem"] and headers["x-user-token"].startswith("access-")
+    assert "mail still arrives" in ctx.client.get("/console/accounts/alice@example.com").text
+
+
+def test_lifecycle_forms_need_csrf_and_deletion_needs_the_address_typed(ctx):
+    sign_in(ctx)
+    ctx.cp.answers[("GET", "/v1/accounts/alice@example.com")] = (200, ACCOUNT)
+    form, _ = account_form(ctx)
+    for action, data, says in (("suspend", {**form, "csrf": "wrong"}, "form expired"),
+                               ("delete", {**form, "confirm": "bob@example.com"}, "type the address exactly"),
+                               ("explode", form, "form expired")):
+        n = len(ctx.cp.calls)
+        ctx.client.post(f"/console/accounts/alice@example.com/{action}", data=data)
+        assert len(ctx.cp.calls) == n, action
+        assert says in ctx.client.get("/console/accounts/alice@example.com").text
+
+
+def test_scheduling_a_deletion_and_a_refusal_are_explained(ctx):
+    sign_in(ctx)
+    ctx.cp.answers[("GET", "/v1/accounts/alice@example.com")] = (200, ACCOUNT)
+    ctx.cp.answers[("POST", "/v1/accounts/alice@example.com/deletion")] = (202, {
+        "ok": True, "address": "alice@example.com", "state": "login_disabled", "identity": "disabled",
+        "due_at": "2026-12-15T10:00:00Z", "needs_backup_after": "2026-11-15T10:00:00Z"})
+    form, _ = account_form(ctx)
+    ctx.client.post("/console/accounts/alice@example.com/delete", data={**form, "confirm": "Alice@Example.com"})
+    assert ctx.cp.calls[-1][:2] == ("POST", "/v1/accounts/alice@example.com/deletion")
+    assert "Deletion scheduled for 2026-12-15 10:00:00 UTC" in ctx.client.get("/console/accounts/alice@example.com").text
+    ctx.cp.answers[("PUT", "/v1/accounts/alice@example.com/quota")] = (422, {
+        "ok": False, "kind": "invalid", "detail": "quota is below what the mailbox already uses (3 MB)"})
+    ctx.client.post("/console/accounts/alice@example.com/quota", data={**form, "quota_mb": "1"})
+    assert ctx.cp.calls[-1][3] == {"quota_mb": 1}
+    assert "Not done: quota is below" in ctx.client.get("/console/accounts/alice@example.com").text

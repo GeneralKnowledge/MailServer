@@ -3,7 +3,9 @@
 It signs in as the realm's `avedeus-control-plane` client (client
 credentials; realm-as-code in infrastructure/identity) and offers typed
 operations only: find a user, create an invited user with a password and a
-group, delete a user this flow just created, and health. Never a pass-through
+group, delete a user this flow just created, and health. PR 16 (admin only):
+read a user's state, disable or enable, end their sessions, require a new
+password at next sign-in, and delete a user whose account deletion is due. Never a pass-through
 to Keycloak's admin API (ADR 0009, docs/integration-contract.md).
 
 Keycloak is the browser identity only. Mail clients use mailcow app
@@ -26,7 +28,7 @@ log = logging.getLogger("broker.keycloak")
 
 
 class KeycloakError(Exception):
-    """kind: 'taken' | 'password' | 'auth' | 'unavailable' | 'rejected'"""
+    """kind: 'taken' | 'password' | 'auth' | 'unavailable' | 'rejected' | 'not_found'"""
 
     def __init__(self, kind: str, detail: str):
         super().__init__(f"{kind}: {detail}")
@@ -153,8 +155,54 @@ class KeycloakClient:
             raise KeycloakError("rejected", msg)
         raise KeycloakError("unavailable", f"create user HTTP {r.status_code}")
 
+    # ---- lifecycle (PR 16, admin only) -------------------------------------
+
+    def get_user(self, user_id: str) -> dict | None:
+        """{"enabled": bool, "required_actions": [...]}, or None if there is no such user."""
+        r = self._admin("GET", f"/users/{quote(user_id)}")
+        if r.status_code == 404:
+            return None
+        if r.status_code != 200:
+            raise KeycloakError("unavailable", f"user read HTTP {r.status_code}")
+        try:
+            u = r.json()
+        except ValueError as e:
+            raise KeycloakError("unavailable", "user read: non-JSON response") from e
+        return {"enabled": bool(u.get("enabled")), "required_actions": [str(a) for a in u.get("requiredActions") or []]}
+
+    def _update_user(self, user_id: str, body: dict) -> None:
+        # Keycloak's PUT /users/{id} changes only the fields present.
+        r = self._admin("PUT", f"/users/{quote(user_id)}", json=body)
+        if r.status_code == 404:
+            raise KeycloakError("not_found", "no such Keycloak user")
+        if r.status_code != 204:
+            raise KeycloakError("unavailable", f"user update HTTP {r.status_code}")
+
+    def set_enabled(self, user_id: str, enabled: bool) -> None:
+        """A disabled user can't sign in to anything that uses Keycloak."""
+        self._update_user(user_id, {"enabled": bool(enabled)})
+
+    def logout(self, user_id: str) -> None:
+        """End every Keycloak session of the user (portal, console, SOGo sign-in)."""
+        r = self._admin("POST", f"/users/{quote(user_id)}/logout")
+        if r.status_code == 404:
+            raise KeycloakError("not_found", "no such Keycloak user")
+        if r.status_code != 204:
+            raise KeycloakError("unavailable", f"logout HTTP {r.status_code}")
+
+    def require_password_reset(self, user_id: str) -> None:
+        """Keycloak asks for a new password at the next sign-in; current sessions end."""
+        user = self.get_user(user_id)
+        if user is None:
+            raise KeycloakError("not_found", "no such Keycloak user")
+        actions = user["required_actions"]
+        if "UPDATE_PASSWORD" not in actions:
+            self._update_user(user_id, {"requiredActions": [*actions, "UPDATE_PASSWORD"]})
+        self.logout(user_id)
+
     def delete_user(self, user_id: str) -> None:
-        """Undo a creation in this same flow (mailbox creation was definitively refused)."""
+        """Undo a creation in this same flow (mailbox creation was definitively refused),
+        or remove the identity of an account whose deletion is due (PR 16)."""
         r = self._admin("DELETE", f"/users/{quote(user_id)}")
         if r.status_code not in (204, 404):
             raise KeycloakError("unavailable", f"delete user HTTP {r.status_code}")

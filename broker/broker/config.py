@@ -62,6 +62,9 @@ class Settings:
     admin_group: str = "admins"
     # PR 15: admin tokens must show a second factor (amr contains "otp").
     admin_require_otp: bool = True
+    # PR 16 (ADR 0021, roadmap D6): days between scheduling a deletion and the
+    # deletion job removing the account (and only after a newer backup).
+    deletion_grace_days: int = 30
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -113,6 +116,10 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         raise RuntimeError("the portal caller needs IDENTITY_PROVIDER=keycloak and KEYCLOAK_ISSUER "
                            "(https://<mail host>/auth/realms/avedeus)")
 
+    grace = num("DELETION_GRACE_DAYS", 30)
+    if not 1 <= grace <= 365:
+        raise RuntimeError("DELETION_GRACE_DAYS must be 1-365")
+
     extra = {x.strip().lower() for x in src.get("EXTRA_RESERVED_USERNAMES", "").split(",") if x.strip()}
     return Settings(
         mailcow_api_url=req("MAILCOW_API_URL").rstrip("/"),
@@ -140,4 +147,5 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         admin_client_id=src.get("ADMIN_CLIENT_ID", "").strip() or "avedeus-admin",
         admin_group=src.get("ADMIN_GROUP", "").strip() or "admins",
         admin_require_otp=src.get("ADMIN_REQUIRE_OTP", "true").strip().lower() in {"1", "true", "yes", "on"},
+        deletion_grace_days=grace,
     )

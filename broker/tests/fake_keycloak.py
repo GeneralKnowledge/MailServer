@@ -24,6 +24,8 @@ class FakeKeycloak:
         self.issued = 0
         self.min_password = 12
         self.fail_next_create: str | None = None   # None | "timeout" | "http500"
+        self.fail_next_update = False
+        self.logouts: list[str] = []
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -70,6 +72,30 @@ class FakeKeycloak:
             if mode == "timeout":
                 raise httpx.ReadTimeout("timed out after commit", request=request)
             return httpx.Response(201, headers={"Location": f"http://keycloak:8080{admin}/users/{uid}"})
+        # PR 16: lifecycle.
+        if rest.startswith("/users/") and rest.endswith("/logout") and request.method == "POST":
+            uid = rest.split("/")[2]
+            if uid not in self.users:
+                return httpx.Response(404, json={"error": "User not found"})
+            self.logouts.append(uid)
+            return httpx.Response(204)
+        if request.method == "GET" and rest.startswith("/users/") and rest.count("/") == 2:
+            u = self.users.get(rest.rsplit("/", 1)[1])
+            if u is None:
+                return httpx.Response(404, json={"error": "User not found"})
+            return httpx.Response(200, json={"id": u["id"], "username": u["username"],
+                                             "enabled": u.get("enabled", True),
+                                             "requiredActions": u.get("requiredActions", [])})
+        if request.method == "PUT" and rest.startswith("/users/") and rest.count("/") == 2:
+            if self.fail_next_update:
+                self.fail_next_update = False
+                return httpx.Response(500, text="boom")
+            u = self.users.get(rest.rsplit("/", 1)[1])
+            if u is None:
+                return httpx.Response(404, json={"error": "User not found"})
+            body = json.loads(request.content)
+            u.update({k: v for k, v in body.items() if k in ("enabled", "requiredActions")})
+            return httpx.Response(204)
         if request.method == "DELETE" and rest.startswith("/users/"):
             uid = rest.rsplit("/", 1)[1]
             return httpx.Response(204 if self.users.pop(uid, None) else 404)

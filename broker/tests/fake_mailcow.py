@@ -24,6 +24,8 @@ class FakeMailcow:
         self.logs: dict[str, list[dict]] = {"postfix": [], "rspamd-history": [], "dovecot": []}
         self.quarantine: list[dict] = []
         self.mailq: list[dict] = []
+        self.fail_next_edit = False
+        self.deleted: list[str] = []
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -80,4 +82,25 @@ class FakeMailcow:
             if mode == "timeout_after_create":
                 raise httpx.ReadTimeout("timed out after commit", request=request)
             return httpx.Response(200, json=[{"type": "success", "log": [], "msg": ["mailbox_added", addr]}])
+        # PR 16: lifecycle writes, in mailcow's shapes.
+        if request.method == "POST" and path == "/api/v1/edit/mailbox":
+            body = json.loads(request.content)
+            addr = str(body["items"][0]).lower()
+            if self.fail_next_edit:
+                self.fail_next_edit = False
+                return httpx.Response(500, text="Internal Server Error")
+            if addr not in self.mailboxes:
+                return httpx.Response(200, json=[{"type": "danger", "log": [], "msg": "access_denied"}])
+            attr = body["attr"]
+            if "active" in attr:
+                self.mailboxes[addr]["active"] = int(attr["active"])
+            if "quota" in attr:
+                self.mailboxes[addr]["quota"] = int(attr["quota"]) * 1048576
+            return httpx.Response(200, json=[{"type": "success", "log": [], "msg": ["mailbox_modified", addr]}])
+        if request.method == "POST" and path == "/api/v1/delete/mailbox":
+            addr = str(json.loads(request.content)[0]).lower()
+            if self.mailboxes.pop(addr, None) is None:
+                return httpx.Response(200, json=[{"type": "danger", "log": [], "msg": "access_denied"}])
+            self.deleted.append(addr)
+            return httpx.Response(200, json=[{"type": "success", "log": [], "msg": ["mailbox_removed", addr]}])
         return httpx.Response(404, json={"type": "error", "msg": "route not found"})

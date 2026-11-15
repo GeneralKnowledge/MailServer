@@ -11,8 +11,8 @@ Exit 2: could not run (mailcow or the database unavailable).
 
 Mailboxes that exist in mailcow but were not created through the control
 plane (for example postmaster, made in mailcow's UI) are listed as
-"unmanaged". That is information, not drift, until account lifecycle moves
-into the control plane (PR 16) and the Keycloak links exist (PR 12).
+"unmanaged". That is information, not drift. Accounts the deletion job
+removed (PR 16, `account.purge`) are expected to be gone and are not drift.
 """
 
 from __future__ import annotations
@@ -32,7 +32,12 @@ def run(mc: MailcowClient, store: Store, domain: str, out=print) -> int:
                     error_kind=e.kind)
         out(f"reconcile: could not list mailcow mailboxes: {e}")
         return 2
-    created = {a.lower() for a in store.addresses("mailbox.create", "ok")}
+    made = store.last_seen("mailbox.create", "ok")
+    for a, seq in store.last_seen("account.create", "ok").items():
+        made[a] = max(seq, made.get(a, 0))
+    purged = store.last_seen("account.purge", "ok")
+    # Created and not deleted since (an address can be created again after a deletion).
+    created = {a for a, seq in made.items() if purged.get(a, 0) < seq}
     missing = sorted(created - in_mailcow)
     unmanaged = sorted(in_mailcow - created)
     store.audit(caller="system", action="reconcile.report", outcome="failed" if missing else "ok",

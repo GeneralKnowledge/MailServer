@@ -9,7 +9,8 @@ credential (ADR 0003): its Keycloak client secret, its control-plane token
 and its token for the sign-up app's internal API.
 
     Invitations  the sign-up app's internal API (they stay in its database, ADR 0020)
-    Accounts     control plane listAccounts (read-only; lifecycle is PR 16)
+    Accounts     control plane listAccounts, getAccount and, PR 16, the lifecycle
+                 operations (suspend, reactivate, quota, password reset, deletion)
     Trace        control plane traceMessage (PR 34)
     Audit        control plane readAudit
 
@@ -32,7 +33,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import httpx
 from fastapi import APIRouter, FastAPI, Form, Request
@@ -130,7 +131,9 @@ def create_app(settings: Settings | None = None, *, oidc: OidcClient | None = No
     sessions = Sessions(clock)
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     templates.env.filters["ts"] = _ts
-    templates.env.globals.update(brand=s.brand_name, base=s.base_path, links=s.links())
+    templates.env.globals.update(brand=s.brand_name, base=s.base_path, links=s.links(),
+                                 states={"active": "active", "login_disabled": "suspended (mail still arrives)",
+                                         "inactive": "suspended (mail refused)"})
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.state.sessions = sessions
@@ -191,7 +194,8 @@ def create_app(settings: Settings | None = None, *, oidc: OidcClient | None = No
         """One call to the control plane or the sign-up app. (status, body); 0 if unreachable."""
         if kind == "cp":
             base, transport = s.control_plane_url, control_plane
-            headers = {"Authorization": f"Bearer {s.control_plane_token}", "X-User-Token": u.access_token}
+            headers = {"Authorization": f"Bearer {s.control_plane_token}", "X-User-Token": u.access_token,
+                       **kw.pop("headers", {})}
         else:
             base, transport = s.signup_url, signup
             headers = {"Authorization": f"Bearer {s.signup_token}", "X-Admin-Actor": u.sub[:64]}
@@ -348,6 +352,58 @@ def create_app(settings: Settings | None = None, *, oidc: OidcClient | None = No
         if not u:
             return to_login()
         return cp_page(request, u, "accounts.html", "/v1/accounts", "accounts")
+
+    def account_url(address: str) -> str:
+        return f"{s.base_path}/accounts/{quote(address, safe='@')}"
+
+    @r.get("/accounts/{address}")
+    def account(request: Request, address: str):
+        u = current(request)
+        if not u:
+            return to_login()
+        # A fresh Idempotency-Key per page: a double-submitted form replays, it doesn't act twice.
+        return cp_page(request, u, "account.html", f"/v1/accounts/{quote(address[:254], safe='@')}", "accounts",
+                       flash=request.session.pop("flash", None), idem=secrets.token_urlsafe(24))
+
+    # What each button on the account page does (PR 16, ADR 0021).
+    LIFECYCLE = {
+        "suspend": ("POST", "/suspend", "Suspended: nobody can sign in{mail}."),
+        "reactivate": ("POST", "/reactivate", "Reactivated."),
+        "quota": ("PUT", "/quota", "Quota set to {quota_mb} MB."),
+        "password-reset": ("POST", "/password-reset", "A new password will be asked for at the next sign-in; "
+                                                       "current sessions have ended."),
+        "delete": ("POST", "/deletion", "Deletion scheduled for {due_at}. The account is suspended until then."),
+        "cancel-delete": ("DELETE", "/deletion", "Deletion cancelled."),
+    }
+
+    @r.post("/accounts/{address}/{action}")
+    def account_action(request: Request, address: str, action: str, csrf: str = Form(""), idem: str = Form(""),
+                       stop_receiving: str = Form(""), quota_mb: int = Form(0), confirm: str = Form("")):
+        u = current(request)
+        if not u:
+            return to_login()
+        back = RedirectResponse(account_url(address), status_code=303)
+        if action not in LIFECYCLE or not need_csrf(u, csrf) or not 16 <= len(idem) <= 128:
+            request.session["flash"] = "The form expired; try again."
+            return back
+        if action == "delete" and confirm.strip().lower() != address.lower():
+            request.session["flash"] = "Not scheduled: type the address exactly to confirm the deletion."
+            return back
+        method, suffix, done = LIFECYCLE[action]
+        body = {"quota_mb": quota_mb} if action == "quota" else \
+            {"stop_receiving": stop_receiving == "1"} if action == "suspend" else None
+        code, data = call("cp", u, method, f"/v1/accounts/{quote(address[:254], safe='@')}{suffix}",
+                          json=body, headers={"Idempotency-Key": idem})
+        if signed_out_by_cp(code, data):
+            sessions.drop(request.session.pop("sid", None))
+            return to_login()
+        if code in (200, 202):
+            request.session["flash"] = done.format(
+                mail="; mail no longer arrives" if data.get("state") == "inactive" else "; mail still arrives",
+                quota_mb=data.get("quota_mb", ""), due_at=_ts(data.get("due_at", "")))
+        else:
+            request.session["flash"] = f"Not done: {data.get('detail') or 'the control plane is not answering'}"
+        return back
 
     @r.get("/trace")
     def trace(request: Request, address: str = "", message_id: str = "", hours: int = 24):

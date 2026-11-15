@@ -1,5 +1,6 @@
-"""The control plane's own database (ADR 0007): the audit log, idempotency records
-and identity links (mailbox address <-> Keycloak user id, ADR 0004; PR 12).
+"""The control plane's own database (ADR 0007): the audit log, idempotency records,
+identity links (mailbox address <-> Keycloak user id, ADR 0004; PR 12) and
+scheduled account deletions (PR 16, ADR 0021).
 
 SQLite in the broker's own volume. The audit table is append-only: triggers
 refuse UPDATE and DELETE, so an event can't be edited or removed through
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS audit_events (
     event TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS audit_action_ts ON audit_events(action, outcome, ts);
+CREATE INDEX IF NOT EXISTS audit_address ON audit_events(address, seq);
 CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit_events
     BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit_events
@@ -52,6 +54,17 @@ CREATE TABLE IF NOT EXISTS identity_links (
     provider TEXT NOT NULL,
     subject TEXT NOT NULL,
     ts REAL NOT NULL
+);
+
+-- PR 16: accounts suspended for deletion. The deletion job (broker.purge)
+-- removes them after due_at, and only once a backup that started after
+-- scheduled_at has completed (ADR 0021). A row is removed when the deletion
+-- is cancelled or done; the history is in the audit log.
+CREATE TABLE IF NOT EXISTS deletions (
+    address TEXT PRIMARY KEY,
+    scheduled_at REAL NOT NULL,
+    due_at REAL NOT NULL,
+    prior_state TEXT NOT NULL
 );
 """
 
@@ -124,6 +137,27 @@ class Store:
                                    "AND address IS NOT NULL", (action, outcome)).fetchall()
         return {r[0] for r in rows}
 
+    def last_seen(self, action: str, outcome: str) -> dict[str, int]:
+        """address -> sequence number of its newest event with this action and outcome."""
+        with self.lock:
+            rows = self.db.execute("SELECT lower(address), max(seq) FROM audit_events WHERE action=? AND outcome=? "
+                                   "AND address IS NOT NULL GROUP BY lower(address)", (action, outcome)).fetchall()
+        return dict(rows)
+
+    def latest(self, action: str, outcome: str = "ok") -> dict | None:
+        """The newest event with this action and outcome."""
+        with self.lock:
+            row = self.db.execute("SELECT event FROM audit_events WHERE action=? AND outcome=? ORDER BY seq DESC LIMIT 1",
+                                  (action, outcome)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def history(self, address: str, limit: int = 50) -> list[dict]:
+        """Recent events about one address, newest first."""
+        with self.lock:
+            rows = self.db.execute("SELECT event FROM audit_events WHERE address=? ORDER BY seq DESC LIMIT ?",
+                                   (address.lower(), limit)).fetchall()
+        return [json.loads(r[0]) for r in rows]
+
     def events(self, limit: int = 1000) -> list[dict]:
         with self.lock:
             rows = self.db.execute("SELECT event FROM audit_events ORDER BY seq DESC LIMIT ?", (limit,)).fetchall()
@@ -195,3 +229,31 @@ class Store:
         with self.lock:
             rows = self.db.execute("SELECT address, subject FROM identity_links WHERE provider=?", (provider,)).fetchall()
         return dict(rows)
+
+    # ---- scheduled deletions (PR 16) -------------------------------------------
+
+    def deletion_add(self, address: str, due_at: float, prior_state: str) -> bool:
+        """False if one is already scheduled."""
+        with self.lock:
+            try:
+                self.db.execute("INSERT INTO deletions (address, scheduled_at, due_at, prior_state) VALUES (?,?,?,?)",
+                                (address.lower(), self.clock(), due_at, prior_state))
+                return True
+            except sqlite3.IntegrityError:
+                return False
+
+    def deletion_get(self, address: str) -> dict | None:
+        with self.lock:
+            row = self.db.execute("SELECT address, scheduled_at, due_at, prior_state FROM deletions WHERE address=?",
+                                  (address.lower(),)).fetchone()
+        return dict(zip(("address", "scheduled_at", "due_at", "prior_state"), row)) if row else None
+
+    def deletion_remove(self, address: str) -> None:
+        with self.lock:
+            self.db.execute("DELETE FROM deletions WHERE address=?", (address.lower(),))
+
+    def deletions(self) -> list[dict]:
+        with self.lock:
+            rows = self.db.execute("SELECT address, scheduled_at, due_at, prior_state FROM deletions "
+                                   "ORDER BY due_at").fetchall()
+        return [dict(zip(("address", "scheduled_at", "due_at", "prior_state"), r)) for r in rows]

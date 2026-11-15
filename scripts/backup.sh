@@ -50,6 +50,10 @@ on_exit() {
 }
 trap on_exit EXIT
 hc_ping "$HC_BACKUP_URL" start
+# Recorded in the control plane when the run succeeds: the deletion job only
+# removes an account after a backup that started after its deletion was
+# scheduled (PR 16, ADR 0021).
+BACKUP_STARTED=$(date -u +%s)
 
 # mailcow's generate_config.sh leaves DOCKER_COMPOSE_VERSION empty until the
 # first update.sh, and backup_and_restore.sh's restore refuses to run then.
@@ -194,5 +198,10 @@ fi
 # Read by health-check.sh to alert on a stale backup.
 mkdir -p "$BACKUP_ROOT"
 echo "$(date -u +%s) $latest ${RCLONE_REMOTE:-local-only}" > "$BACKUP_ROOT/last-success"
+if [ "$SKIP_REGISTRATION" != 1 ]; then
+  # Not a backup failure if it doesn't work: scheduled deletions just wait for the next run.
+  docker compose -f "$REG_COMPOSE" exec -T broker python -m broker.backup --mark-complete "$BACKUP_STARTED" \
+    || log "WARNING: could not record the backup in the control plane; scheduled deletions wait for the next backup"
+fi
 log "done: $latest"
 hc_ping "$HC_BACKUP_URL" success "$(tail -n 30 "$RUN_LOG")"

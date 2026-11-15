@@ -282,6 +282,7 @@ Avedeus logo and plum colours on the login page and in webmail, light and dark.
    echo '15 3 * * * root /opt/MailServer/scripts/backup.sh >>/var/log/mail-backup.log 2>&1' | sudo tee /etc/cron.d/mail-backup
    echo '*/15 * * * * root /opt/MailServer/scripts/health-check.sh >/var/log/mail-health.log 2>&1' | sudo tee /etc/cron.d/mail-health
    echo '10 4 * * * root /opt/MailServer/scripts/reconcile.sh >>/var/log/mail-reconcile.log 2>&1' | sudo tee /etc/cron.d/mail-reconcile
+   echo '10 5 * * * root /opt/MailServer/scripts/purge-deleted.sh >>/var/log/mail-purge.log 2>&1' | sudo tee /etc/cron.d/mail-purge
    sudo /opt/MailServer/scripts/backup.sh
    ```
 4. **Alerts.** Install the [ntfy](https://ntfy.sh) app on your phone and
