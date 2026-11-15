@@ -82,6 +82,14 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $mtoken"
   -d '{"username":"smoke-should-not-exist","enabled":true}' "$KC/admin/realms/avedeus/users")
 [ "$code" = 403 ] && pass "mailcow client cannot create users (403)" || fail "mailcow client creating a user returned $code"
 
+# 3b. The portal client (PR 14) shows the login page for its exact redirect
+#     and refuses any other.
+auth="$KC/realms/avedeus/protocol/openid-connect/auth?client_id=avedeus-portal&response_type=code&scope=openid&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256"
+good=$(curl -s -o /dev/null -w '%{http_code}' "$auth&redirect_uri=https://$MAIL_HOSTNAME/account/callback")
+bad=$(curl -s -o /dev/null -w '%{http_code}' "$auth&redirect_uri=https://evil.example/account/callback")
+if [ "$good" = 200 ] && [ "$bad" = 400 ]; then pass "portal client: exact redirect only"
+else fail "portal client: good redirect $good, bad redirect $bad"; fi
+
 # 4. No password grant (ADR 0015): Keycloak never checks a mail-client password.
 err=$(curl -s -d grant_type=password -d client_id=mailcow --data-urlencode "client_secret=$MAILCOW_OIDC_SECRET" \
   -d username=nobody -d password=nothing "$KC/realms/avedeus/protocol/openid-connect/token" | jq -r .error)

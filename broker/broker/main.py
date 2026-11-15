@@ -12,6 +12,7 @@ idempotency keys and health. No workflow engine, event bus or plugins.
     POST /v1/accounts          create an account: identity, then mailbox (signup; PR 12)
     POST /v1/mailboxes         create <local_part>@<domain>        (signup; superseded by /v1/accounts)
     GET  /v1/trace             read-only message trace             (admin; PR 34)
+    GET  /v1/me                the signed-in user's own account     (portal; PR 14)
 
 Every caller has its own token and source addresses (config.py), and may use
 only the operations in capabilities.py. Every state-changing call and every
@@ -43,6 +44,7 @@ from .mailcow import MailcowClient, MailcowError
 from .rules import local_part_error
 from .store import Store
 from . import trace as tracing
+from .usertoken import TokenError, UserTokenVerifier
 
 log = logging.getLogger("broker")
 DAY = 86400
@@ -93,7 +95,8 @@ def _client_allowed(host: str, allowed: tuple[str, ...]) -> bool:
 
 def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | None = None,
                store: Store | None = None, keycloak: KeycloakClient | None = None,
-               mailcow_read_only: MailcowClient | None = None, clock=time.time) -> FastAPI:
+               mailcow_read_only: MailcowClient | None = None, user_tokens: UserTokenVerifier | None = None,
+               clock=time.time) -> FastAPI:
     s = settings or load_settings()
     mc = mailcow or MailcowClient(s.mailcow_api_url, s.mailcow_api_key, s.mailcow_tls_hostname, s.mailcow_verify_tls)
     db = store or Store(s.db_path, clock=clock)
@@ -197,6 +200,34 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
             return {"ok": True, "mailcow_version": mc.version()}
         except MailcowError as e:
             return _err(502, e.kind, e.detail)
+
+    # ---- portal: the signed-in user's own account (PR 14) -------------------------
+
+    verifier = user_tokens or (UserTokenVerifier(
+        f"{s.keycloak_url}/realms/{s.keycloak_realm}/protocol/openid-connect/certs",
+        s.keycloak_issuer, s.portal_client_id) if kc and s.keycloak_issuer else None)
+
+    @app.get("/v1/me", operation_id="getOwnAccount")
+    def own_account(request: Request):
+        if kc is None or verifier is None:
+            return _err(502, "unavailable", "the portal needs the identity provider")
+        raw = request.headers.get("x-user-token", "")
+        try:
+            claims = verifier.verify(raw)
+        except TokenError as e:
+            audit(request, action="auth.refused", outcome="refused", operation="getOwnAccount",
+                  error_kind="unauthorized")
+            return _err(401, "unauthorized", f"user token: {e}")
+        addr = db.address_for(kc.name, str(claims["sub"]))
+        if not addr:
+            return _err(404, "not_found", "no mailbox is linked to this identity")
+        try:
+            info = mc.mailbox_info(addr)
+        except MailcowError as e:
+            return _err(502, e.kind, e.detail)
+        if info is None:
+            return _err(404, "not_found", "the linked mailbox no longer exists")
+        return {"ok": True, "address": addr, **info}
 
     # ---- admin: message trace (PR 34) -------------------------------------------
 

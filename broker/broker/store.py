@@ -185,6 +185,12 @@ class Store:
         with self.lock:
             self.db.execute("DELETE FROM identity_links WHERE address=? AND provider=?", (address.lower(), provider))
 
+    def address_for(self, provider: str, subject: str) -> str | None:
+        with self.lock:
+            row = self.db.execute("SELECT address FROM identity_links WHERE provider=? AND subject=?",
+                                  (provider, subject)).fetchone()
+        return row[0] if row else None
+
     def links(self, provider: str) -> dict[str, str]:
         with self.lock:
             rows = self.db.execute("SELECT address, subject FROM identity_links WHERE provider=?", (provider,)).fetchall()

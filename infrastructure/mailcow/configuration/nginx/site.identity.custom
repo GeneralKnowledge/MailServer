@@ -85,3 +85,19 @@ location /auth/realms/master/ {
     proxy_buffers 4 256k;
     proxy_busy_buffers_size 256k;
 }
+
+# PR 14: the account portal at /account/ (only with Keycloak deployed).
+location = /account {
+    return 301 /account/;
+}
+
+location /account/ {
+    resolver 127.0.0.11 valid=30s ipv6=off;
+    set $portal_upstream http://portal:8000;
+    proxy_pass $portal_upstream;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_read_timeout 60s;
+    client_max_body_size 64k;
+}

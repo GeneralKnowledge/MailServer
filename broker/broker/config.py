@@ -20,7 +20,7 @@ DEFAULT_RESERVED = frozenset(
 # Callers that can be configured, each with <NAME>_TOKEN and <NAME>_CLIENTS.
 # What each may do is in capabilities.py (mirrors contracts/capabilities.yaml).
 REQUIRED_CALLERS = ("signup",)
-OPTIONAL_CALLERS = ("monitoring", "admin")
+OPTIONAL_CALLERS = ("monitoring", "admin", "portal")
 
 
 @dataclass(frozen=True)
@@ -54,6 +54,10 @@ class Settings:
     # PR 34: the message trace reads mailcow with its own read-only key.
     mailcow_read_only_api_key: str = ""
     trace_log_lines: int = 10000
+    # PR 14: the portal's users. Their Keycloak access tokens must come from this
+    # issuer (the public URL) and be issued to this client.
+    keycloak_issuer: str = ""
+    portal_client_id: str = "avedeus-portal"
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -100,6 +104,11 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
     if ro_key and ro_key == src.get("MAILCOW_API_KEY", "").strip():
         raise RuntimeError("MAILCOW_READ_ONLY_API_KEY must be mailcow's read-only key, not the read-write one")
 
+    issuer = src.get("KEYCLOAK_ISSUER", "").strip().rstrip("/")
+    if src.get("PORTAL_TOKEN", "").strip() and (idp != "keycloak" or not issuer.startswith("https://")):
+        raise RuntimeError("the portal caller needs IDENTITY_PROVIDER=keycloak and KEYCLOAK_ISSUER "
+                           "(https://<mail host>/auth/realms/avedeus)")
+
     extra = {x.strip().lower() for x in src.get("EXTRA_RESERVED_USERNAMES", "").split(",") if x.strip()}
     return Settings(
         mailcow_api_url=req("MAILCOW_API_URL").rstrip("/"),
@@ -122,4 +131,6 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         mailbox_template=src.get("MAILBOX_TEMPLATE", "").strip(),
         mailcow_read_only_api_key=ro_key,
         trace_log_lines=num("TRACE_LOG_LINES", 10000),
+        keycloak_issuer=issuer,
+        portal_client_id=src.get("PORTAL_CLIENT_ID", "").strip() or "avedeus-portal",
     )

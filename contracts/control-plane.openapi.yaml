@@ -198,6 +198,43 @@ paths:
         "429": {$ref: "#/components/responses/Error"}
         "502": {$ref: "#/components/responses/Error"}
 
+  /v1/me:
+    get:
+      operationId: getOwnAccount
+      tags: [portal]
+      summary: The signed-in user's own account (address, name, quota, state).
+      description: |
+        PR 14. The portal passes the user's Keycloak access token in
+        `X-User-Token`; the control plane verifies its signature (realm JWKS),
+        issuer, expiry and that it was issued to the portal client, and takes
+        the user only from its `sub` via the identity link. A request field
+        can never name another user. Read-only; refused tokens are audited.
+      x-avedeus-status: implemented
+      x-avedeus-pr: 14
+      security: [{callerToken: [], userToken: []}]
+      parameters:
+        - {name: X-User-Token, in: header, required: true, schema: {type: string, maxLength: 8192}}
+      responses:
+        "200":
+          description: The user's own account.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, address, name, quota_mb, used_mb, active]
+                additionalProperties: false
+                properties:
+                  ok: {const: true}
+                  address: {type: string, format: email}
+                  name: {type: string, maxLength: 100}
+                  quota_mb: {type: integer}
+                  used_mb: {type: integer}
+                  active: {type: boolean}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
+
   /v1/trace:
     get:
       operationId: traceMessage

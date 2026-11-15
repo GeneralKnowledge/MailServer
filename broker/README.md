@@ -18,6 +18,7 @@ against all three.
 |---|---|---|
 | `signup` (the registration app) | `SIGNUP_TOKEN` + `SIGNUP_CLIENTS` | `POST /v1/addresses/check`, `POST /v1/accounts` (PR 12), `POST /v1/mailboxes` (refused while Keycloak is on) |
 | `monitoring` (`health-check.sh` via `broker.probe`) | `MONITORING_TOKEN` + `MONITORING_CLIENTS=127.0.0.1` | `GET /v1/health`, `GET /v1/upstream` |
+| `portal` (the account portal, PR 14) | `PORTAL_TOKEN` + `PORTAL_CLIENTS=172.30.240.13`, plus the signed-in user's Keycloak access token in `X-User-Token` (signature, issuer, expiry and `azp` verified against the realm's keys) | `GET /v1/me` (the user's own address, name, quota, state; the user comes only from the token) |
 | `admin` (`python -m broker.trace` inside the container; the admin console from PR 15) | `ADMIN_TOKEN` + `ADMIN_CLIENTS=127.0.0.1` | `GET /v1/trace` (read-only message trace, PR 34; uses `MAILCOW_READ_ONLY_API_KEY` only) |
 | anyone | none | `GET /healthz` (liveness) |
 

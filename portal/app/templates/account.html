@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Your account · {{ brand }}{% endblock %}
+{% block content %}
+<h1>Hello{% if user.name %}, {{ user.name }}{% endif %}</h1>
+{% if account %}
+<p class="big">{{ account.address }}</p>
+<p>{{ account.used_mb }} MB of {{ account.quota_mb }} MB used{% if quota_pct is not none %} ({{ quota_pct }}%){% endif %}.</p>
+<progress max="100" value="{{ quota_pct or 0 }}">{{ quota_pct or 0 }}%</progress>
+{% if not account.active %}<p><strong>Your mailbox is switched off.</strong> Contact the person who invited you.</p>{% endif %}
+{% elif error == "not_found" %}
+<p>No mailbox is linked to this account yet. Contact the person who invited you.</p>
+{% else %}
+<p class="muted">Your mailbox details can't be shown right now. Everything below still works.</p>
+{% endif %}
+
+<h2>First: set up your mail apps</h2>
+<ol>
+  <li>Open <a href="{{ links.mailcow_user }}">your mailbox settings</a> and create an
+      <strong>app password</strong> under <em>App passwords</em>, one per app or device.</li>
+  <li>In the mail app, sign in with your address and that app password. Your account password
+      only works in the browser.</li>
+  <li>On an iPhone, iPad or Mac, the same settings page offers a setup profile that also adds
+      calendars and contacts.</li>
+</ol>
+
+<h2>Security</h2>
+<ul>
+  <li><a href="{{ links.kc_password }}">Password and two-factor sign-in</a></li>
+  <li><a href="{{ links.kc_sessions }}">Where you're signed in</a> (sign out other devices)</li>
+  <li><a href="{{ links.mailcow_user }}">App passwords and recent mail-app logins</a></li>
+</ul>
+
+<h2>Mail</h2>
+<ul>
+  <li><a href="{{ links.webmail }}">Webmail</a>: mail, contacts, calendar, filters and vacation replies</li>
+  <li><a href="{{ links.mailcow_user }}">Spam settings and quarantine</a></li>
+</ul>
+<p class="muted">Each link opens the place that already does this well; this page only gathers them.</p>
+{% endblock %}
