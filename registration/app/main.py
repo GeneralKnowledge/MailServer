@@ -198,7 +198,10 @@ def create_app(settings: Settings | None = None, *, broker: BrokerClient | None 
         try:
             # The broker checks the address is free, creates the mailbox, and
             # confirms it itself if mailcow's reply is lost.
-            mc.create_mailbox(local_part=name, password=password, quota_mb=inv.quota_mb, name=display_name)
+            # One key per claim: a repeat of this exact attempt can't create twice.
+            key = "claim-" + hashlib.sha256(cid.encode()).hexdigest()[:32]
+            mc.create_mailbox(local_part=name, password=password, quota_mb=inv.quota_mb, name=display_name,
+                              idempotency_key=key)
         except ProvisioningError as e:
             if e.kind == "unavailable":
                 # Our call to the broker failed; the mailbox may still have been created.

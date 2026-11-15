@@ -1,7 +1,7 @@
 """The broker offers only check and create, and enforces its rules itself."""
 
 import pytest
-from conftest import AUTH, TOKEN, mailbox
+from conftest import AUTH, MON_AUTH, TOKEN, mailbox
 from fastapi.testclient import TestClient
 
 from broker.config import load_settings
@@ -25,7 +25,7 @@ def test_token_and_client_required(ctx, env):
     assert ctx.client.get("/v1/upstream", headers=bad).status_code == 401
     assert not ctx.fake.mailboxes
     # Only the listed client addresses (TestClient's host isn't an IP, so it's refused)
-    locked = TestClient(create_app(load_settings({**env, "BROKER_ALLOWED_CLIENTS": "172.30.240.10"})))
+    locked = TestClient(create_app(load_settings({**env, "SIGNUP_CLIENTS": "172.30.240.10"})))
     assert locked.post("/v1/mailboxes", json=mailbox(), headers=AUTH).status_code == 403
     assert locked.get("/healthz").status_code == 200  # liveness stays open for the container health check
 
@@ -53,8 +53,9 @@ def test_rules_enforced_whatever_the_caller_says(ctx, body, kind):
 
 
 def test_domain_cannot_be_chosen(ctx):
+    # Unknown fields are refused (the contract says additionalProperties: false).
     r = ctx.client.post("/v1/mailboxes", json={**mailbox(), "domain": "other.com"}, headers=AUTH)
-    assert r.status_code == 201 and r.json()["address"] == "alice@example.com"
+    assert r.status_code == 422 and r.json()["kind"] == "invalid" and not ctx.fake.mailboxes
 
 
 def test_taken_and_alias(ctx):
@@ -91,11 +92,11 @@ def test_upstream_errors_pass_kind(ctx):
     ctx.fake.down = True
     r = ctx.client.post("/v1/mailboxes", json=mailbox(), headers=AUTH)
     assert r.status_code == 502 and r.json()["kind"] == "unavailable"
-    assert ctx.client.get("/v1/upstream", headers=AUTH).json()["kind"] == "unavailable"
+    assert ctx.client.get("/v1/upstream", headers=MON_AUTH).json()["kind"] == "unavailable"
 
 
 def test_upstream_check(ctx):
-    r = ctx.client.get("/v1/upstream", headers=AUTH)
+    r = ctx.client.get("/v1/upstream", headers=MON_AUTH)
     assert r.status_code == 200 and r.json()["mailcow_version"]
 
 
@@ -105,8 +106,17 @@ def test_display_name_cleaned(ctx):
 
 
 def test_settings_checks(env):
-    with pytest.raises(RuntimeError, match="BROKER_TOKEN"):
-        load_settings({**env, "BROKER_TOKEN": "short"})
-    with pytest.raises(RuntimeError, match="BROKER_ALLOWED_CLIENTS"):
-        load_settings({**env, "BROKER_ALLOWED_CLIENTS": ""})
-    assert TOKEN not in repr(load_settings(env).allowed_clients)
+    with pytest.raises(RuntimeError, match="SIGNUP_TOKEN"):
+        load_settings({**env, "SIGNUP_TOKEN": "short"})
+    with pytest.raises(RuntimeError, match="SIGNUP_CLIENTS"):
+        load_settings({**env, "SIGNUP_CLIENTS": ""})
+    with pytest.raises(RuntimeError, match="renamed to SIGNUP_TOKEN"):
+        load_settings({**env, "BROKER_TOKEN": "x" * 40})
+    with pytest.raises(RuntimeError, match="own token"):
+        load_settings({**env, "MONITORING_TOKEN": env["SIGNUP_TOKEN"]})
+    with pytest.raises(RuntimeError, match="MONITORING_CLIENTS"):
+        load_settings({**env, "MONITORING_CLIENTS": ""})
+    # Monitoring is optional: without its token it simply doesn't exist.
+    names = [c.name for c in load_settings({k: v for k, v in env.items() if not k.startswith("MONITORING")}).callers]
+    assert names == ["signup"]
+    assert TOKEN not in repr([c.clients for c in load_settings(env).callers])

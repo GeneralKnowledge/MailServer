@@ -225,7 +225,7 @@ and set it on the avedeus.ovh domain. Add the relay's `include:` to SPF.
 ```sh
 cd /opt/MailServer/infrastructure/registration
 sudo cp .env.example .env && sudo cp broker.env.example broker.env && sudo chmod 600 .env broker.env
-openssl rand -hex 32                                                        # BROKER_TOKEN: same value in both files
+openssl rand -hex 32                                                        # SIGNUP_TOKEN in broker.env = BROKER_TOKEN in .env
 sudo docker compose build
 sudo docker compose run --rm registration python -m app.cli hash-password   # paste result as ADMIN_PASSWORD_HASH='…'
 sudo docker compose run --rm registration python -m app.cli new-totp       # ADMIN_TOTP_SECRET; scan the otpauth URI
@@ -233,11 +233,11 @@ openssl rand -base64 48                                                     # SE
 sudo nano broker.env .env
 ```
 
-In `broker.env`: `MAILCOW_API_KEY` = the key from B3, and `BROKER_TOKEN`.
+In `broker.env`: `MAILCOW_API_KEY` = the key from B3, and `SIGNUP_TOKEN`.
 This is the only place the key goes; the registration app refuses to start
 if it finds `MAILCOW_API_KEY` in its own `.env`.
 
-In `.env`: the same `BROKER_TOKEN`; `ADMIN_USERNAME` = a name of
+In `.env`: `BROKER_TOKEN` = the same value as `SIGNUP_TOKEN`; `ADMIN_USERNAME` = a name of
 your choice; wrap the password hash in single quotes;
 `ADMIN_ALLOWED_IPS=<your home IP or VPN range>` so the admin page is invisible
 to everyone else (it returns 404). The app refuses to start without it unless
@@ -282,6 +282,7 @@ Avedeus logo and plum colours on the login page and in webmail, light and dark.
    printf 'RCLONE_REMOTE=offsite-crypt:mailserver\nLOCAL_KEEP_DAYS=3\nREMOTE_KEEP_DAYS=30\n' | sudo tee /etc/mailserver/backup.env
    echo '15 3 * * * root /opt/MailServer/scripts/backup.sh >>/var/log/mail-backup.log 2>&1' | sudo tee /etc/cron.d/mail-backup
    echo '*/15 * * * * root /opt/MailServer/scripts/health-check.sh >/var/log/mail-health.log 2>&1' | sudo tee /etc/cron.d/mail-health
+   echo '10 4 * * * root /opt/MailServer/scripts/reconcile.sh >>/var/log/mail-reconcile.log 2>&1' | sudo tee /etc/cron.d/mail-reconcile
    sudo /opt/MailServer/scripts/backup.sh
    ```
 4. **Alerts.** Install the [ntfy](https://ntfy.sh) app on your phone and

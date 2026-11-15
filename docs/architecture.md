@@ -145,9 +145,8 @@ The machine-readable version is
 [contracts/capabilities.yaml](../contracts/capabilities.yaml), and CI checks
 that every operation it lists exists in the
 [OpenAPI contract](../contracts/control-plane.openapi.yaml). Enforcement in
-code arrives with PR 9. Today there is no caller separation: one shared
-token unlocks every broker route, and the `signup` row holds only because the
-broker has no other state-changing endpoints.
+code since PR 9: each enforced caller has its own token and source addresses,
+and may use only its row's implemented operations.
 
 | Caller | Credential | Allowed operations | Identity of the subject comes from |
 |---|---|---|---|
@@ -204,7 +203,8 @@ and an arm64 image, or it is not added.
 
 ## What exists today (2026-11-15)
 
-Implemented in code on the PR #1 branch; **nothing is proven on Oracle yet.**
+Implemented in code (PR #1 audit fixes, PR 9 control plane core); **nothing
+is proven on Oracle yet.**
 
 ```
  Internet ──► nginx-mailcow ── /       mailcow UI, SOGo
@@ -213,7 +213,9 @@ Implemented in code on the PR #1 branch; **nothing is proven on Oracle yet.**
                                 ▲ avedeus-edge (internal, 172.30.240.0/24)
  /opt/MailServer/infrastructure/registration (separate compose project)
    ├ registration  .10  FastAPI + SQLite; no mailcow key; asks the broker
-   └ broker        .11  sole holder of the mailcow key; check + create only
+   └ broker        .11  the control plane: sole holder of the mailcow key;
+                        per-caller tokens, check + create + health only,
+                        own SQLite (audit log, idempotency) in its own volume
  backups ──rclone crypt──► off-site
 ```
 
@@ -221,10 +223,11 @@ Implemented in code on the PR #1 branch; **nothing is proven on Oracle yet.**
 |---|---|---|---|
 | mailcow-dockerized | upstream, `/opt/mailcow-dockerized` | 2 | unchanged |
 | Sign-up site + invite admin | `registration/` | 5 | sign-up only; admin pages move to `/admin` in PR 15 |
-| Provisioning broker | `broker/` | 3 | the control plane (PR 9) |
+| Control plane (the broker) | `broker/` | 3 | grows one narrow adapter per integration actually in use |
 | `/join/` proxy rule, SOGo and login branding | `infrastructure/mailcow/configuration/` | 2 (supported custom files) | unchanged |
 | Backups, restore, health, alerts | `scripts/` | 4 | extended in M9 |
-| CI and Dependabot | `.github/` | 4 | gains a contract check (this PR) |
+| CI and Dependabot | `.github/` | 4 | includes the contract check (PR 8, PR 9) |
+| Daily reconciliation (report only) | `scripts/reconcile.sh`, `broker/broker/reconcile.py` | 4 | compares Keycloak links too once PR 12 exists (PR 31) |
 
 ### Sign-up flow today
 

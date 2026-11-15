@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/GeneralKnowledge/MailServer/contracts/audit-event.schema.json",
   "title": "Avedeus audit event",
-  "description": "One append-only record per state-changing control-plane operation and per refused call. Never contains passwords, tokens, invitation tokens or message content. Implemented from PR 9; nothing writes it yet.",
+  "description": "One append-only record per state-changing control-plane operation and per refused call. Never contains passwords, tokens, invitation tokens or message content. Written by the control plane since PR 9, in its own database.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -33,7 +33,7 @@
       "maxLength": 64
     },
     "caller": {
-      "description": "Row in capabilities.yaml that made the call.",
+      "description": "Row in capabilities.yaml that made the call; `system` for scheduled jobs (reconciliation); `unknown` when no valid credential was presented.",
       "enum": [
         "signup",
         "portal",
@@ -41,7 +41,8 @@
         "pm-token",
         "personal-token",
         "monitoring",
-        "system"
+        "system",
+        "unknown"
       ]
     },
     "actor": {
@@ -159,6 +160,17 @@
             "$ref": "#/$defs/changeValue"
           }
         }
+      }
+    },
+    "counts": {
+      "description": "Non-secret totals, e.g. a reconciliation report's counts.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z_]+$"
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
       }
     }
   },

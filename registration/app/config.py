@@ -108,7 +108,7 @@ def _broker_token(src) -> str:
                            "it belongs in broker.env (the provisioning broker)")
     token = src.get("BROKER_TOKEN", "").strip()
     if len(token) < 32:
-        raise RuntimeError("BROKER_TOKEN must be set (at least 32 characters, same as in broker.env)")
+        raise RuntimeError("BROKER_TOKEN must be set (at least 32 characters, same as SIGNUP_TOKEN in broker.env)")
     return token
 
 
