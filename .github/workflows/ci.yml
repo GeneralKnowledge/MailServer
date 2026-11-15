@@ -116,7 +116,7 @@ jobs:
         run: |
           docker run -d --name broker -p 8100:8100 \
             -e MAILCOW_API_URL=https://mail.example.com -e MAILCOW_API_KEY=x -e MAIL_DOMAIN=example.com \
-            -e BROKER_TOKEN="$(openssl rand -hex 32)" -e BROKER_ALLOWED_CLIENTS=127.0.0.1 \
+            -e SIGNUP_TOKEN="$(openssl rand -hex 32)" -e SIGNUP_CLIENTS=127.0.0.1 \
             mailserver-broker:ci
           for i in $(seq 1 30); do
             curl -fsS http://127.0.0.1:8100/healthz && exit 0

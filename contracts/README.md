@@ -29,7 +29,13 @@ when:
 - a planned state-changing operation has no `Idempotency-Key` or no audit
   action;
 - the audit schema would accept a password, token or key, including one
-  nested inside a change value.
+  nested inside a change value;
+- the enforced capability rows differ from the broker's copy, or the running
+  broker lets a caller reach an operation its row doesn't grant (or refuses
+  one it does);
+- the sign-up app's real requests don't match the request schemas, the broker
+  accepts a body the schema refuses, or an audit event the broker writes
+  doesn't match the audit schema.
 
 ```sh
 pip install -r broker/requirements.txt -r contracts/requirements-dev.txt
@@ -45,22 +51,15 @@ python -m pytest -q contracts
   experience layer anything new: an architecture change. Name it in the PR
   description and justify it (review rule).
 
-## Known differences (to fix in PR 9)
+## Resolved in PR 9
 
-- FastAPI's own request-validation errors (missing field, wrong type, password
-  shorter than 8 or longer than 128) come back as FastAPI's default
-  `{"detail": [...]}` instead of the error envelope, and that default echoes
-  the request body, password included. With the sign-up app's defaults
-  (passwords 12–128 characters, checked before the call) this is not
-  reachable, but the sign-up app stores that `detail` in its event log, so it
-  would become a leak if `MIN_PASSWORD_LEN` were set below 8. PR 9 should
-  return the envelope and never echo input.
-- There is no caller separation yet. One shared `BROKER_TOKEN` unlocks every
-  broker route, and the sign-up app is its only HTTP client (`health-check.sh`
-  runs `broker.selfcheck` inside the container instead). Every row in
-  capabilities.yaml says `enforced: false` until PR 9 adds per-caller
-  credentials and enforcement.
-- The contract tests check routes, response shapes and capability rules. They
-  do not yet check that real requests match the request schemas, or that
-  authentication matches the security declarations; that comes with PR 9's
-  per-caller security.
+- Request-validation errors now use the error envelope (`kind: invalid`) and
+  name only the fields at fault; they never echo the request. The sign-up app
+  also no longer keeps the body of any non-envelope 422 it receives.
+- Each caller has its own credential and source addresses, and the
+  `enforced: true` rows are checked on every call. CI compares them with
+  `broker/broker/capabilities.py` and probes the running broker as every
+  caller.
+- CI checks that the sign-up app's real requests match the request schemas,
+  that the broker refuses bodies the schemas refuse, and that every audit
+  event it writes matches the audit schema.

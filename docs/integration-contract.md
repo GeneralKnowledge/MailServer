@@ -5,7 +5,9 @@ every new service must bring before it is added to the box. Background:
 [ADR 0002](adr/0002-layered-platform.md) (admission rule) and
 [ADR 0009](adr/0009-integrations-behind-adapters.md) (adapters).
 
-Status: **agreed, not yet implemented.** PR 9 builds the adapter interface and
+Status: **adapter side implemented in PR 9** for mailcow (`broker/broker/adapters.py`,
+`broker/broker/mailcow.py`): A1–A8 and A10 hold; A9 can only be shown when a
+second integration exists. Not proven on Oracle. PR 9 built the adapter interface and
 moves the existing mailcow client (`broker/broker/mailcow.py`) behind it.
 
 ## An adapter (code in the control plane)

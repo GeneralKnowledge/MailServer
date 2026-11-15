@@ -7,6 +7,11 @@
   alias or audit operations (ADR 0010);
 - the broker's real routes are exactly the contract's implemented operations,
   and its real responses match the contract's schemas;
+- the enforced capability rows match the broker's own copy, and the running
+  broker answers 401/403/allowed exactly as they say (PR 9);
+- the requests the sign-up app really sends match the request schemas, and
+  the broker refuses bodies the schemas refuse (PR 9);
+- every audit event the broker really writes matches the audit schema;
 - audit-event.schema.json is a valid schema that refuses secrets.
 """
 
@@ -155,27 +160,34 @@ def test_tokens_cannot_exceed_portal(caps):
 
 # --- the broker matches the contract ----------------------------------------
 
-@pytest.fixture(scope="module")
-def broker():
+SIGNUP = {"Authorization": "Bearer " + "s" * 40}
+MONITORING = {"Authorization": "Bearer " + "m" * 40}
+CALLER_AUTH = {"signup": SIGNUP, "monitoring": MONITORING}
+
+
+def _broker_modules():
     sys.path.insert(0, str(ROOT / "broker"))
     sys.path.insert(0, str(ROOT / "broker" / "tests"))
+    from broker import capabilities, config, mailcow, main, store
+    import fake_mailcow
+    return capabilities, config, mailcow, main, store, fake_mailcow
+
+
+@pytest.fixture
+def broker():
+    _, config, mailcow, main, store, fake_mailcow = _broker_modules()
     from fastapi.testclient import TestClient
 
-    from broker.config import load_settings
-    from broker.mailcow import MailcowClient
-    from broker.main import create_app
-    from fake_mailcow import API_KEY, FakeMailcow
-
-    token = "c" * 40
-    settings = load_settings({
-        "MAILCOW_API_URL": "https://mail.example.com", "MAILCOW_API_KEY": API_KEY,
-        "MAIL_DOMAIN": "example.com", "BROKER_TOKEN": token, "BROKER_ALLOWED_CLIENTS": "*",
-        "MAX_CREATES_PER_DAY": "1",
+    settings = config.load_settings({
+        "MAILCOW_API_URL": "https://mail.example.com", "MAILCOW_API_KEY": fake_mailcow.API_KEY,
+        "MAIL_DOMAIN": "example.com", "SIGNUP_TOKEN": "s" * 40, "SIGNUP_CLIENTS": "*",
+        "MONITORING_TOKEN": "m" * 40, "MONITORING_CLIENTS": "*", "MAX_CREATES_PER_DAY": "1",
     })
-    fake = FakeMailcow()
-    mc = MailcowClient(settings.mailcow_api_url, settings.mailcow_api_key, transport=fake.transport())
-    app = create_app(settings, mailcow=mc)
-    return app, TestClient(app), {"Authorization": f"Bearer {token}"}
+    fake = fake_mailcow.FakeMailcow()
+    mc = mailcow.MailcowClient(settings.mailcow_api_url, settings.mailcow_api_key, transport=fake.transport())
+    db = store.Store(":memory:")
+    app = main.create_app(settings, mailcow=mc, store=db)
+    return app, TestClient(app), db
 
 
 def test_broker_routes_equal_implemented_operations(spec, broker):
@@ -187,6 +199,8 @@ def test_broker_routes_equal_implemented_operations(spec, broker):
         f"in broker but not in contract: {routes - implemented}; "
         f"in contract but not in broker: {implemented - routes}"
     )
+    ops = {r.operation_id for r in app.routes if getattr(r, "methods", None)}
+    assert ops == {i for i, (_, _, op) in by_id(spec).items() if op["x-avedeus-status"] == "implemented"}
 
 
 def _check(spec, op_id, response):
@@ -198,16 +212,135 @@ def _check(spec, op_id, response):
 
 
 def test_broker_responses_match_contract(spec, broker):
-    _, client, auth = broker
+    _, client, _ = broker
     _check(spec, "healthz", client.get("/healthz"))
-    _check(spec, "checkAddress", client.post("/v1/addresses/check", json={"local_part": "carol"}, headers=auth))
-    _check(spec, "checkAddress", client.post("/v1/addresses/check", json={"local_part": "admin"}, headers=auth))
+    _check(spec, "health", client.get("/v1/health", headers=MONITORING))
+    _check(spec, "checkAddress", client.post("/v1/addresses/check", json={"local_part": "carol"}, headers=SIGNUP))
+    _check(spec, "checkAddress", client.post("/v1/addresses/check", json={"local_part": "admin"}, headers=SIGNUP))
+    _check(spec, "checkAddress", client.post("/v1/addresses/check", json={}, headers=SIGNUP))         # 422
     body = {"local_part": "carol", "password": "Sunny-River-42x", "name": "C", "quota_mb": 1024}
-    _check(spec, "createMailbox", client.post("/v1/mailboxes", json=body, headers=auth))            # 201
-    _check(spec, "createMailbox", client.post("/v1/mailboxes", json=body, headers=auth))            # 429 cap
-    _check(spec, "createMailbox", client.post("/v1/mailboxes", json={**body, "quota_mb": 0}, headers=auth))  # 422
-    _check(spec, "createMailbox", client.post("/v1/mailboxes", json=body))                          # 401
-    _check(spec, "upstreamCheck", client.get("/v1/upstream", headers=auth))
+    key = {"Idempotency-Key": "k" * 20}
+    _check(spec, "createMailbox", client.post("/v1/mailboxes", json=body, headers={**SIGNUP, **key}))  # 201
+    _check(spec, "createMailbox", client.post("/v1/mailboxes", json=body, headers={**SIGNUP, **key}))  # replay 201
+    _check(spec, "createMailbox", client.post("/v1/mailboxes", json={**body, "local_part": "dave"},
+                                              headers={**SIGNUP, **key}))                                # 409 conflict
+    _check(spec, "createMailbox", client.post("/v1/mailboxes", json={**body, "local_part": "erin"},
+                                              headers=SIGNUP))                                           # 429 cap
+    _check(spec, "createMailbox", client.post("/v1/mailboxes", json={**body, "quota_mb": 0}, headers=SIGNUP))  # 422
+    _check(spec, "createMailbox", client.post("/v1/mailboxes", json={**body, "password": "x"}, headers=SIGNUP))  # 422
+    _check(spec, "createMailbox", client.post("/v1/mailboxes", json=body))                               # 401
+    _check(spec, "createMailbox", client.post("/v1/mailboxes", json=body, headers=MONITORING))           # 403
+    _check(spec, "upstreamCheck", client.get("/v1/upstream", headers=MONITORING))
+
+
+# --- PR 9: capabilities are enforced as written ------------------------------
+
+def test_enforced_rows_match_the_brokers_copy(spec, caps):
+    capabilities = _broker_modules()[0]
+    implemented = {i for i, (_, _, op) in by_id(spec).items() if op["x-avedeus-status"] == "implemented"}
+    enforced = {n: set(r["operations"]) & implemented for n, r in caps["callers"].items() if r["enforced"]}
+    assert enforced == {n: set(v) for n, v in capabilities.CAPABILITIES.items()}
+    assert set(caps["public"]) == set(capabilities.PUBLIC)
+    # Nothing implemented is reachable by a caller whose row isn't enforced.
+    for name, row in caps["callers"].items():
+        if not row["enforced"]:
+            assert name not in capabilities.CAPABILITIES
+
+
+def _call(client, method, path, headers):
+    body = {"local_part": "zed", "password": "Sunny-River-42x", "quota_mb": 10} if path == "/v1/mailboxes" \
+        else {"local_part": "zed"} if method == "POST" else None
+    return client.request(method, path, json=body, headers=headers)
+
+
+def test_authentication_matches_the_security_declarations(spec, caps, broker):
+    _, client, _ = broker
+    for method, path, op in operations(spec):
+        if op["x-avedeus-status"] != "implemented":
+            continue
+        op_id = op["operationId"]
+        public = op.get("security") == []
+        assert public == (op_id in caps["public"]), f"{op_id}: security vs capabilities.yaml public"
+        anon = _call(client, method, path, {})
+        if public:
+            assert anon.status_code < 400, op_id
+            continue
+        assert anon.status_code == 401 and anon.json()["kind"] == "unauthorized", op_id
+        wrong = _call(client, method, path, {"Authorization": "Bearer " + "w" * 40})
+        assert wrong.status_code == 401, op_id
+        for name, headers in CALLER_AUTH.items():
+            r = _call(client, method, path, headers)
+            if op_id in caps["callers"][name]["operations"]:
+                assert r.status_code not in (401, 403), f"{name} should reach {op_id}: {r.status_code}"
+            else:
+                assert r.status_code == 403 and r.json()["kind"] == "forbidden", f"{name} must not reach {op_id}"
+
+
+# --- PR 9: requests match the request schemas ----------------------------------
+
+def _request_schema(spec, op_id):
+    return resolve(by_id(spec)[op_id][2]["requestBody"], spec)["content"]["application/json"]["schema"]
+
+
+def test_signup_app_requests_match_the_contract(spec):
+    sys.path.insert(0, str(ROOT / "registration"))
+    import httpx
+    from app.provisioning import BrokerClient
+
+    sent = []
+
+    def handler(request):
+        sent.append((request.url.path, json.loads(request.content), dict(request.headers)))
+        if request.url.path == "/v1/mailboxes":
+            return httpx.Response(201, json={"ok": True, "address": "alice@example.com"})
+        return httpx.Response(200, json={"ok": True, "valid": True, "reason": None, "taken": False, "mailbox": False})
+
+    c = BrokerClient("http://broker", "s" * 40, transport=httpx.MockTransport(handler))
+    c.check("alice")
+    c.create_mailbox(local_part="alice", password="Sunny-River-42x", quota_mb=1024, name="Alice",
+                     idempotency_key="claim-" + "a" * 32)
+    paths = {p: (m, op) for m, p, op in operations(spec)}
+    for path, body, headers in sent:
+        _, op = paths[path]
+        jsonschema.validate(body, _request_schema(spec, op["operationId"]))
+        assert headers["authorization"].startswith("Bearer ")
+    create_headers = sent[-1][2]
+    param = next(p for p in by_id(spec)["createMailbox"][2]["parameters"] if p["name"] == "Idempotency-Key")
+    jsonschema.validate(create_headers["idempotency-key"], param["schema"])
+
+
+@pytest.mark.parametrize("op_id,path,body", [
+    ("createMailbox", "/v1/mailboxes", {"local_part": "x", "password": "Sunny-River-42x", "quota_mb": 1, "domain": "a"}),
+    ("createMailbox", "/v1/mailboxes", {"local_part": "x", "password": "short", "quota_mb": 1}),
+    ("createMailbox", "/v1/mailboxes", {"local_part": "x", "quota_mb": 1}),
+    ("checkAddress", "/v1/addresses/check", {"local_part": "x", "extra": True}),
+    ("checkAddress", "/v1/addresses/check", {"local_part": "x" * 65}),
+])
+def test_broker_refuses_what_the_request_schema_refuses(spec, broker, op_id, path, body):
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(body, _request_schema(spec, op_id))
+    r = broker[1].post(path, json=body, headers=SIGNUP)
+    assert r.status_code == 422 and r.json()["kind"] == "invalid"
+    assert body.get("password", "\0") not in r.text
+
+
+def test_events_the_broker_writes_match_the_audit_schema(broker, audit_schema):
+    _, client, db = broker
+    body = {"local_part": "carol", "password": "Sunny-River-42x", "quota_mb": 1024}
+    client.post("/v1/mailboxes", json=body, headers={**SIGNUP, "Idempotency-Key": "k" * 20})
+    client.post("/v1/mailboxes", json=body, headers=SIGNUP)                      # refused: limit
+    client.post("/v1/mailboxes", json={"x": 1}, headers=SIGNUP)                  # request.invalid
+    client.post("/v1/mailboxes", json=body)                                      # auth.refused unknown
+    client.get("/v1/upstream", headers=SIGNUP)                                   # auth.refused forbidden
+    reconcile = __import__("broker.reconcile", fromlist=["run"])
+    _, config, mailcow, _, _, fake_mailcow = _broker_modules()
+    reconcile.run(mailcow.MailcowClient("https://mail.example.com", fake_mailcow.API_KEY,
+                                        transport=fake_mailcow.FakeMailcow().transport()),
+                  db, "example.com", out=lambda _: None)
+    events = db.events()
+    assert {e["action"] for e in events} >= {"mailbox.create", "request.invalid", "auth.refused", "reconcile.report"}
+    for e in events:
+        jsonschema.validate(e, audit_schema, format_checker=jsonschema.FormatChecker())
 
 
 # --- audit events -----------------------------------------------------------
@@ -246,6 +379,8 @@ def test_audit_schema_is_valid_and_accepts_a_normal_event(audit_schema):
     {"changes": {"quota": {"from": {"nested": {"token": "x"}}}}},
     {"changes": {"quota": {"to": ["secret-value"]}}},
     {"changes": {"note": {"to": "x" * 255}}},
+    {"counts": {"missing": -1}},
+    {"counts": {"api_key": "abc"}},
 ])
 def test_audit_schema_refuses_secrets_and_unknowns(audit_schema, bad):
     with pytest.raises(jsonschema.ValidationError):
