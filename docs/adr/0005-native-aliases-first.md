@@ -1,7 +1,11 @@
 # 0005. mailcow-native aliases first; SimpleLogin optional and gated
 
 - Status: Accepted (2026-11-15). Plan decision E2.
-- Implemented: No (back end in PR 10, screens in PR 19). Proven on Oracle: No
+- Implemented: No. Proven on Oracle: No
+- **Parked (2026-11-15, owner):** PR 10, 19, 21 and 22 are not planned
+  deliverables. Native mailcow aliases remain available as mailcow provides
+  them; we are not building an additional alias-management product now. If
+  alias work is revived, this ADR still sets its direction.
 
 ## Context
 

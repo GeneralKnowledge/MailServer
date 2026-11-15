@@ -4,8 +4,13 @@ Adopted 2026-11-15 as the working plan (source: the "Avedeus integration
 platform: research and plan" document). Replaces `docs/roadmap-m5-m7.md`;
 nothing from that plan is dropped (see [mapping](#where-the-old-m5m7-items-went)).
 
-**Order.** M0–M4 on the real Oracle server first (server setup is on hold
-until the owner says go). Audit fixes 1–7 are done in code (PR #1). PR 8 (this
+**Order.** M0–M4 on the real Oracle server first. **Approved 2026-11-15**
+as a staged setup, not permission to skip validation: verify mailcow's native
+defaults and supported overrides; validate Keycloak authentication, lifecycle
+and resource use (pause its integration if it fails the gate); test app
+passwords with real mail clients; measure Postfix/Rspamd log retention for
+PR 34; test backups and restoration; verify network isolation and
+provisioning; check ARM64 compatibility and memory limits. Audit fixes 1–7 are done in code (PR #1). PR 8 (this
 architecture) comes next, then PR 9 onward. Every PR:
 
 - is small enough to review in one sitting, with tests against fakes;
@@ -40,11 +45,11 @@ feature users actually need today?** If yes, it does not belong in the
 initial deployment. Make the boundaries replaceable, but don't build the
 replacement mechanism until it is needed.
 
-Deferred outside the initial commitment: SimpleLogin (PR 21–22), the rule
-engine and visual Sieve editor (PR 23–25), cross-service automation, a custom
+Deferred outside the initial commitment: cross-service automation, a custom
 security dashboard, a user-facing message trace, an account export
 application, the metrics stack (PR 27), personal API tokens and MCP (PR 32),
-the AI assistant (PR 33). Alias PR 10 and 19 are unchanged here.
+the AI assistant (PR 33). Alias work is parked and the rule engine dropped
+(see [decision record](#decision-record-2026-11-15)).
 
 **Gap audit (2026-11-15).** The [mailcow feature-gap audit](mailcow-gap-audit.md)
 re-scoped PR 14, 20, 23–25 and 29 and added PR 34. Numbering is unchanged:
@@ -66,16 +71,15 @@ PR of its own.
 |---|---|---|---|---|
 | 8 | Architecture and service contracts | Docs and contracts only: [architecture](architecture.md), this roadmap, [ADRs](adr/), [control-plane contract](../contracts/control-plane.openapi.yaml), [capabilities](../contracts/capabilities.yaml), [audit schema](../contracts/audit-event.schema.json), [integration contract](integration-contract.md), [baseline checklist](platform-baseline.md), CI contract check | Audit 7 | No |
 | 9 | Control plane core | Broker becomes a **narrow** control plane (no workflow engine, event bus, plugin framework or speculative adapters; [ADR 0017](adr/0017-minimum-complete-platform.md)): adapter interface, mailcow adapter, per-caller credentials checked against capabilities.yaml, append-only audit log, idempotency keys, error envelope for validation errors, nightly reconciliation stub. **Implemented in code** (per-caller tokens, `/v1/health`, report-only daily reconciliation, CI conformance tests); not proven on Oracle | 8 | No |
-| 10 | Alias back end (mailcow-native) | List, create random/custom, expire, disable, delete own aliases; per-user limits; reserved names; SimpleLogin/addy-compatible endpoints behind per-user tokens. Built against fakes; done only after an Oracle rehearsal. **Needs E3** ([ADR 0013](adr/0013-alias-domain.md)) | 9 | Yes |
 | 11 | Keycloak and Postgres | **Validation gate first** ([ADR 0006](adr/0006-keycloak-identity-provider.md#validation-gate-before-deployment-added-2026-11-15)): not deployed on Oracle until unified identity is needed today and it fits the box. Then arm64 images, memory caps, capped JVM heap; realm, clients, groups as code; `/auth/` through mailcow nginx; admin console IP-restricted; in backups | 8 | Yes |
-| 12 | One identity | mailcow IdP set to Keycloak with sync and offboarding; mailbox templates; migration of existing mailboxes; Keycloak adapter; invitation creates the Keycloak user, then the mailbox. **Needs E5** ([ADR 0015](adr/0015-mail-client-passwords.md)) | 9, 11 | Yes |
+| 12 | One identity | mailcow IdP set to Keycloak with sync and offboarding; mailbox templates; migration of existing mailboxes; Keycloak adapter; invitation creates the Keycloak user, then the mailbox. Mail clients use **app passwords only**; Mailpassword Flow not enabled ([ADR 0015](adr/0015-mail-client-passwords.md)) | 9, 11 | Yes |
 | 13 | Health contract | `/v1/health` itself exists since PR 9; PR 13 wires `health-check.sh` and the audit-5 alerts to it with the monitoring caller, one alert per component. **Implemented in code**; not proven on Oracle | 9 | No |
 
 ## M6 – User experience
 
 | PR | Title | Delivers | Depends on | Server |
 |---|---|---|---|---|
-| 14 | Portal shell and links | `/account`, Keycloak sign-in; quota; a Security panel and other entries that **link** to native functionality instead of rebuilding it: Keycloak account console (sessions, MFA, password), mailcow's user page (app passwords, login history, spam settings, quarantine, Apple/CalDAV/CardDAV setup profiles), SOGo (mail, filters, vacation). Alias screens stay in PR 19 | 12 | Yes |
+| 14 | Portal shell and links | `/account`, Keycloak sign-in; quota; a Security panel and other entries that **link** to native functionality instead of rebuilding it: Keycloak account console (sessions, MFA, password), mailcow's user page (app passwords, login history, spam settings, quarantine, Apple/CalDAV/CardDAV setup profiles), SOGo (mail, filters, vacation). Onboarding makes creating an app password the first step for mail apps | 12 | Yes |
 | 15 | Admin console split | Admin pages leave the sign-up app for their own container at `/admin`; Keycloak admin group + TOTP + IP allow-list; accounts list. **Open design point:** invitations live in the sign-up app's own SQLite today; because databases are not shared ([ADR 0007](adr/0007-no-shared-databases.md)), PR 15 must either move invitations into the control plane or have the sign-up app expose them through an internal API, and record the choice as an ADR | 12 | Yes |
 | 16 | Account lifecycle | Admin-only suspend, reactivate, quota, forced password reset, soft delete with 30-day grace and fresh-backup check; all audited | 15 | Yes |
 | 17 | Self-service account | Password, MFA, recovery via Keycloak's account console; recovery email; bulk invites and resend | 14 | Yes |
@@ -85,19 +89,16 @@ PR of its own.
 
 | PR | Title | Delivers | Depends on | Server |
 |---|---|---|---|---|
-| 19 | Alias screens | Portal pages for aliases and password-manager tokens | 10, 14 | Yes |
 | 20 | Privacy configuration and discoverability | Configuration and discoverability only: SOGo remote-content defaults and portal links to mailcow's existing per-user spam thresholds and sender allow/block lists. No new privacy UI or control-plane operations | 14 | Yes |
-| 21 | SimpleLogin spike (gated) | Patched arm64 build in a public fork, cloud rehearsal with a mailcow transport map, decision ADR | Owner's go-ahead | No |
-| 22 | SimpleLogin adapter (gated) | Keycloak login, alias domain, lifecycle via control plane; native aliases stay | 21 | Yes |
 
 ## M8 – Automation
 
 | PR | Title | Delivers | Depends on | Server |
 |---|---|---|---|---|
-| 23 | ~~Rule engine~~ **Deferred** | SOGo remains the rule owner ([ADR 0014](adr/0014-mail-rule-owner.md), proposed). Dropped if 0014 is accepted | — | — |
-| 24 | ~~Visual rule editor~~ **Deferred** | SOGo already provides a visual filter editor; two filtering interfaces would compete | — | — |
-| 25 | ~~Forwarding and vacation~~ **Deferred** | SOGo already provides both; mailcow already rate-limits mailboxes | — | — |
-| 26 | Notifications | Retained. Background jobs; new-sign-in notifications (mailcow has none), quota warnings, alias created; email and push | 9 | Yes |
+| 26 | Notifications | Retained. Background jobs; new-sign-in notifications (mailcow has none), quota warnings; email and push | 9 | Yes |
+
+PR 23–25 (rule engine, visual editor, forwarding and vacation) were **dropped**
+on 2026-11-15: SOGo owns user-facing rules ([ADR 0014](adr/0014-mail-rule-owner.md)).
 
 ## M9 – Operations
 
@@ -165,10 +166,39 @@ separate AI infrastructure.
 |---|---|---|
 | E1 | Identity provider | Settled: Keycloak ([ADR 0006](adr/0006-keycloak-identity-provider.md)) |
 | E2 | Alias service | Settled: native first, SimpleLogin optional ([ADR 0005](adr/0005-native-aliases-first.md)) |
-| E3 | Alias domain | **Open**, needed by PR 10 ([ADR 0013](adr/0013-alias-domain.md)) |
-| E4 | Who owns mail rules | **Proposed: SOGo stays the owner**, awaiting the owner's approval ([ADR 0014](adr/0014-mail-rule-owner.md)); PR 23–25 deferred meanwhile |
-| E5 | Mail-client passwords after Keycloak | **Open**, needed by PR 12 ([ADR 0015](adr/0015-mail-client-passwords.md)) |
+| E3 | Alias domain | Closed as non-blocking while aliases are parked ([ADR 0013](adr/0013-alias-domain.md)) |
+| E4 | Who owns mail rules | Settled: SOGo ([ADR 0014](adr/0014-mail-rule-owner.md)) |
+| E5 | Mail-client passwords after Keycloak | Settled: protocol-scoped app passwords only ([ADR 0015](adr/0015-mail-client-passwords.md)) |
 | E6 | Admin console location | Settled by constraint 2 ([ADR 0010](adr/0010-no-public-lifecycle-admin-separate.md)) |
+| E7 | Initial mail domain | Settled: a subdomain, `mail.avedeus.ovh`; root domain untouched; server host name still to confirm ([ADR 0018](adr/0018-initial-mail-domain.md)) |
+
+### Decision record (2026-11-15)
+
+| Decision | Outcome |
+|---|---|
+| E4 | SOGo owns rules |
+| PR 23–25 | Dropped |
+| Aliases PR 10, 19, 21, 22 | Parked: possible future work, not planned deliverables |
+| E3 | Non-blocking |
+| E5 | Protocol-scoped app passwords |
+| Initial mail domain | `mail.avedeus.ovh` (root `avedeus.ovh` untouched; moving to the root is a later decision) |
+| Oracle setup | Approved for M0–M4, with the validation list under **Order** |
+| PR 34 | Retained, pending the log-window measurement |
+| PR 1 | Already merged |
+
+### Possible future work (not planned)
+
+Native mailcow aliases remain available to users and admins. These are kept
+only so the thinking is not lost; none is a planned deliverable, and reviving
+one needs the owner's go-ahead and a removal-test answer
+([ADR 0017](adr/0017-minimum-complete-platform.md)).
+
+| Former PR | Was | Notes |
+|---|---|---|
+| 10 | Alias back end (mailcow-native) through the control plane, with SimpleLogin/addy-compatible endpoints | Direction still set by [ADR 0005](adr/0005-native-aliases-first.md); E3 reopens if revived. The contract keeps its operations as a sketch |
+| 19 | Portal alias screens and password-manager tokens | Depends on 10 |
+| 21 | SimpleLogin spike (gated) | amd64-only upstream images |
+| 22 | SimpleLogin adapter (gated) | Depends on 21 |
 
 Earlier decisions D1–D9 (from the M5–M7 plan) still stand, with these changes:
 
@@ -213,3 +243,8 @@ Stay open until tested on the Oracle box.
   mailbox template defaults, SOGo remote-content default).
 - How many days of Postfix and Rspamd history the 10,000-line Redis window
   holds on our traffic (sets PR 34's look-back).
+- App passwords work with real mail clients (phone and desktop: IMAP, SMTP,
+  CalDAV/CardDAV), including for IdP-linked mailboxes after PR 12, and stop
+  working when a mailbox is offboarded (ADR 0015).
+- The final host names for [ADR 0018](adr/0018-initial-mail-domain.md):
+  mailcow hostname versus the `mail.avedeus.ovh` mail domain.

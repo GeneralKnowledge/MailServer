@@ -38,13 +38,15 @@ callers:
     status: planned
     enforced: false
     operations:
+      # Alias operations: PR 10 is parked (2026-11-15). Kept as a sketch,
+      # not a planned deliverable; see roadmap "Possible future work".
       - listOwnAliases
       - createOwnAlias
       - updateOwnAlias
       - deleteOwnAlias
       # Notifications (PR 26) add their operations here when designed.
       # PR 20 (privacy) adds none: it is configuration and links only.
-      # Rules (PR 23-25) are deferred: SOGo owns them (ADR 0014, proposed).
+      # Rules (PR 23-25) are dropped: SOGo owns them (ADR 0014).
 
   admin:
     description: Admin console in its own container at /admin (PR 15).
@@ -64,7 +66,7 @@ callers:
       - readAudit
 
   pm-token:
-    description: Password managers (Bitwarden etc.) acting for one user.
+    description: Password managers (Bitwarden etc.) acting for one user. Parked with PR 10 (2026-11-15).
     credential: Per-user token, hashed at rest, revocable
     subject_from: the token's owner
     status: planned

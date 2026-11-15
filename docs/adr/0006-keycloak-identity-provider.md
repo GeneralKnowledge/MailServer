@@ -52,5 +52,7 @@ better email. PR 11 does not deploy it on Oracle until all of these hold:
 4. Lifecycle works end to end with mailcow's IdP sync, including whether
    offboarding ends live sessions (open server check).
 
-If the gate fails, the owner decides what happens next, recorded in a
-superseding ADR. No alternative is assumed here.
+If the gate fails, Keycloak's integration is **paused**, not forced into
+production (owner, 2026-11-15). mailcow keeps its own authentication in the
+meantime, and the owner decides the next step in a superseding ADR. No
+alternative is assumed here.
