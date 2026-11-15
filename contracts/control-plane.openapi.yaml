@@ -34,7 +34,9 @@ tags:
   - name: health
   - name: signup
   - name: aliases
+    description: Parked with PR 10 (2026-11-15). Kept as a sketch; not a planned deliverable.
   - name: password-manager
+    description: Parked with PR 10 (2026-11-15). Kept as a sketch; not a planned deliverable.
   - name: lifecycle
     description: Admin-only. Never granted to the signup caller (ADR 0010).
   - name: audit

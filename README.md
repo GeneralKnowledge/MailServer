@@ -56,16 +56,15 @@ Nothing has been deployed to the real server yet. The priority is getting M0–M
 [docs/roadmap.md](docs/roadmap.md) is the plan (adopted 2026-11-15). In short:
 M0–M4 on the real Oracle server first, then
 
-- **M5 Integration foundation**: a narrow control plane, mailcow-native
-  aliases back end, Keycloak (after a validation gate), one identity, health
+- **M5 Integration foundation**: a narrow control plane, Keycloak (after a
+  validation gate), one identity with app passwords for mail clients, health
   contract
 - **M6 User experience**: portal that links to existing mailcow, SOGo and
   Keycloak functionality, separate admin console, account lifecycle,
   self-service, one look
-- **M7 Privacy**: alias screens, privacy configuration and discoverability,
-  SimpleLogin only if gated in
-- **M8 Automation**: new-sign-in notifications; rule editor deferred (SOGo
-  stays the rule owner, proposed)
+- **M7 Privacy**: privacy configuration and discoverability (alias work is
+  parked)
+- **M8 Automation**: new-sign-in notifications (SOGo owns mail rules)
 - **M9 Operations**: audit viewer, recovery drills and runbooks, delivery and
   DNS checks, reconciliation, admin message trace; metrics stack deferred
 - **M10 Extensions**: deferred until an actual integration needs them

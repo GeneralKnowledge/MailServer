@@ -1,6 +1,8 @@
 # 0013. Alias domain (E3)
 
-- Status: **Open**. Needed by PR 10 (alias back end).
+- Status: **Closed as non-blocking** (2026-11-15, owner). Alias development
+  is parked (PR 10, 19, 21, 22), so nothing needs this answer. Reopen it only
+  if alias work is revived.
 - Implemented: No. Proven on Oracle: No
 
 ## Question
@@ -20,5 +22,7 @@ or a subdomain; that decision may settle this one.
 
 ## Decision
 
-Not decided. PR 10 may be built against fakes with the alias domain as a
-setting, but must not ship with a default that assumes an answer.
+Not decided, and not needed while alias work is parked. Native mailcow
+aliases remain available to users and admins on the mail domain
+([0018](0018-initial-mail-domain.md)). If alias work is revived, this question
+is reopened before any alias code ships.
