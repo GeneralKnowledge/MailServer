@@ -14,7 +14,7 @@ product.** It is not a new mail server: mailcow does mail, Keycloak (from
 PR 11) does identity, and our own code is limited to a control plane, a few
 user-facing apps and the operational glue around them.
 
-Two consequences shape every decision:
+Four rules shape every decision:
 
 - **Foundations before experience.** Infrastructure, core services, the
   control plane and the operational foundations must be dependable before we
@@ -23,6 +23,18 @@ Two consequences shape every decision:
   Ampere box and adds maintenance forever. A service is added only when a
   milestone needs it, never because it is interesting
   ([ADR 0002](adr/0002-layered-platform.md)).
+- **Use what exists first.** Before building a feature, establish whether
+  mailcow, SOGo or Keycloak already provides it. Prefer enabling,
+  configuring, linking and explaining existing functionality. Build new
+  functionality only where there is a demonstrable gap
+  ([ADR 0016](adr/0016-use-what-exists-first.md),
+  [gap audit](mailcow-gap-audit.md)).
+- **Make the boundaries replaceable, but don't build the replacement
+  mechanism until you need it.** Before a component goes into a deployment,
+  ask: can we remove it without losing a feature users actually need today?
+  If yes, it does not belong in the initial deployment
+  ([ADR 0017](adr/0017-minimum-complete-platform.md), which also sets the
+  initial ship target).
 
 ## Layers
 
@@ -112,6 +124,20 @@ moves a line, recording code and Oracle proof separately.
 - SimpleLogin, if ever adopted ([ADR 0005](adr/0005-native-aliases-first.md)),
   sits beside Keycloak and is reached only through the control plane.
 
+### Control plane scope
+
+The control plane is a narrow security and integration broker, not a
+miniature enterprise platform ([ADR 0017](adr/0017-minimum-complete-platform.md)).
+It needs caller authentication and authorisation, narrow adapters for the
+integrations in use, one authoritative audit trail, idempotent operations,
+basic scheduled reconciliation and health reporting. It does not initially
+get a workflow engine, an event bus, a plugin framework, a distributed job
+system or abstractions for integrations we haven't identified.
+
+Keycloak (PR 11) stays the adopted identity provider but passes a
+[validation gate](adr/0006-keycloak-identity-provider.md#validation-gate-before-deployment-added-2026-11-15)
+before it is deployed.
+
 ### Caller capabilities
 
 The control plane decides what each caller may do; the caller cannot widen it.
@@ -169,7 +195,7 @@ and recorded as an ADR then.
 |---|---|
 | mailcow with ClamAV | 4–5 GB |
 | Keycloak + Postgres | 1.2 GB (capped JVM heap) |
-| Prometheus + Grafana + exporters (M9) | 0.5 GB |
+| Prometheus + Grafana + exporters (PR 27, deferred until justified) | 0 GB now (0.5 GB if added) |
 | Avedeus services (control plane, sign-up, portal, admin) | 0.4 GB |
 | Headroom | about 5 GB |
 
@@ -229,7 +255,11 @@ another certificate manager and port conflicts.
 - Networking: published ports still work; from the sign-up container,
   `postfix-mailcow:25`, Redis and the internet are unreachable; the broker
   reaches `https://nginx-mailcow/api/v1`.
-- Rspamd `/metrics` reachable on mailcow's internal network (PR 27).
+- Rspamd `/metrics` reachable on mailcow's internal network (PR 27, deferred).
 - Keycloak start-up time and steady RAM/CPU on two Ampere cores (PR 11).
 - Whether mailcow offboarding or a Keycloak disable ends live SOGo and IMAP
   sessions (PR 16).
+- Every native mailcow/SOGo default we rely on (gap audit O1) works on ARM64
+  and survives a mailcow update.
+- How many days of Postfix and Rspamd history mailcow's Redis log window
+  (10,000 lines) covers on our traffic; this sets PR 34's look-back.

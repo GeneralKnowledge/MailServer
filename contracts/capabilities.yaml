@@ -46,8 +46,9 @@ callers:
       - createOwnAlias
       - updateOwnAlias
       - deleteOwnAlias
-      # Rules (PR 23/24, blocked on ADR 0014), privacy (PR 20) and
-      # notifications (PR 26) add their operations here when designed.
+      # Notifications (PR 26) add their operations here when designed.
+      # PR 20 (privacy) adds none: it is configuration and links only.
+      # Rules (PR 23-25) are deferred: SOGo owns them (ADR 0014, proposed).
 
   admin:
     description: Admin console in its own container at /admin (PR 15).
@@ -77,7 +78,7 @@ callers:
       - pmCreateAliasAddyShape
 
   personal-token:
-    description: Personal API tokens and the MCP server (M10, PR 32). A subset of portal, read-only first.
+    description: Personal API tokens and the MCP server (M10, PR 32, deferred until an actual integration needs it). A subset of portal, read-only first.
     credential: Per-user scoped, IP-limited, short-lived token
     subject_from: the token's owner
     status: planned
@@ -86,7 +87,7 @@ callers:
       - listOwnAliases
 
   monitoring:
-    description: health-check.sh and the PR 13 health contract, once they call the control plane over HTTP. Reads mailcow itself with its own read-only key (PR 27).
+    description: health-check.sh and the PR 13 health contract, once they call the control plane over HTTP. Metrics (PR 27) are deferred; the first read-only mailcow key belongs to PR 34's message trace.
     credential: Bearer token + source IP
     subject_from: n/a
     status: planned caller. upstreamCheck exists, but nothing calls it over HTTP yet; health-check.sh uses broker.selfcheck inside the container instead
