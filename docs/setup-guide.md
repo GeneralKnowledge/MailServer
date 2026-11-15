@@ -250,6 +250,9 @@ sudo cp /opt/MailServer/infrastructure/mailcow/configuration/nginx/site.registra
         /opt/mailcow-dockerized/data/conf/nginx/
 sudo cp /opt/MailServer/infrastructure/mailcow/configuration/docker-compose.override.yml \
         /opt/mailcow-dockerized/
+# Lazy-expunge (deleted mail kept 7 days, PR 29); merge by hand if the file exists:
+sudo cp /opt/MailServer/infrastructure/mailcow/configuration/dovecot/extra.conf \
+        /opt/mailcow-dockerized/data/conf/dovecot/extra.conf
 cd /opt/mailcow-dockerized && sudo docker compose up -d
 cd /opt/MailServer/infrastructure/registration && sudo docker compose up -d
 ```
@@ -284,6 +287,7 @@ Avedeus logo and plum colours on the login page and in webmail, light and dark.
    echo '10 4 * * * root /opt/MailServer/scripts/reconcile.sh >>/var/log/mail-reconcile.log 2>&1' | sudo tee /etc/cron.d/mail-reconcile
    echo '10 5 * * * root /opt/MailServer/scripts/purge-deleted.sh >>/var/log/mail-purge.log 2>&1' | sudo tee /etc/cron.d/mail-purge
    # Only does something once NOTIFY_SIGNINS=true (PR 26, needs Keycloak):
+   echo '0 6 1 * * root /opt/MailServer/scripts/restore-drill.sh --remote >>/var/log/mail-drill.log 2>&1' | sudo tee /etc/cron.d/mail-drill
    echo '*/10 * * * * root /opt/MailServer/scripts/notify-signins.sh >>/var/log/mail-notify.log 2>&1' | sudo tee /etc/cron.d/mail-notify
    sudo /opt/MailServer/scripts/backup.sh
    ```

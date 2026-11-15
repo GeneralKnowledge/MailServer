@@ -98,15 +98,46 @@ sudo /opt/MailServer/scripts/health-check.sh mail.example.com
 
 ## Updates
 
-- **mailcow:** `cd /opt/mailcow-dockerized && sudo ./update.sh --check`, then
-  `sudo ./update.sh` after a backup. Then re-run
-  `sudo /opt/MailServer/scripts/apply-branding.sh`: mailcow tracks the SOGo
-  theme and logo files in git, and `update.sh` merges with "theirs", so an
-  upstream change to them replaces ours. Re-run the health check.
-- **Registration app:** `cd /opt/MailServer && sudo git pull &&
-  cd infrastructure/registration && sudo docker compose up -d --build`.
-- **Ubuntu:** `unattended-upgrades` installs security updates; reboot when
-  `/var/run/reboot-required` exists.
+Every update starts from a fresh, verified backup:
+`sudo /opt/MailServer/scripts/backup.sh` (and, for a major mailcow release,
+`sudo /opt/MailServer/scripts/restore-drill.sh` on it).
+
+**mailcow** (monthly, or on a security release):
+
+1. `cd /opt/mailcow-dockerized && sudo ./update.sh --check`; read the release
+   notes for anything about the options, files or API we use
+   (`docker-compose.override.yml`, `data/conf/dovecot/extra.conf`, the nginx
+   includes, Keycloak identity provider, quota notifications, `force_sso`).
+2. `sudo ./update.sh`. It commits local changes as "Before update on …" first.
+3. `sudo /opt/MailServer/scripts/apply-branding.sh`: mailcow tracks the SOGo
+   theme and logo files in git, and `update.sh` merges with "theirs", so an
+   upstream change to them replaces ours. Then `sudo docker compose up -d`, so
+   the override is applied again.
+4. Check: `sudo /opt/MailServer/scripts/health-check.sh`, sign in to webmail
+   (through Keycloak once it is deployed), send and receive one message, and
+   for a broker change `docker compose exec broker python -m broker.probe`.
+5. Roll back only together with the database backup: an update can change
+   mailcow's database. `docker compose down`, `git checkout <the "Before
+   update" commit>` (`git log --oneline | grep -i "before update"`),
+   `docker compose pull`, restore the backup (`scripts/restore.sh mailcow`),
+   `docker compose up -d`.
+
+**Keycloak** (after the ADR 0006 gate): the version is pinned in
+`infrastructure/identity/docker-compose.yml`. Change it in a pull request, so
+CI's identity stack job starts the new version, imports the realm and runs the
+live tests against it. On the server: backup, `git pull`, then
+`docker compose -f infrastructure/identity/docker-compose.yml --env-file infrastructure/identity/identity.env up -d`,
+and sign in to the portal and the admin console. Keycloak migrates its
+database on start; to go back, restore its dump
+(`scripts/restore.sh identity <backup>`) with the old image.
+
+**Our apps** (registration, broker, portal, admin console):
+`cd /opt/MailServer && sudo git pull && cd infrastructure/registration && sudo docker compose up -d --build`.
+The control plane's database needs no migration step: tables are created if
+missing, and the restore drill opens old backups with the current code.
+
+**Ubuntu:** `unattended-upgrades` installs security updates; reboot when
+`/var/run/reboot-required` exists.
 
 ## Logs
 

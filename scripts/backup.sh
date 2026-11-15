@@ -145,7 +145,7 @@ fi
 # stylesheet, compose override) and mailcow.conf. Optional files are only
 # included if present; anything else going wrong is a failure.
 custom=()
-for f in mailcow.conf docker-compose.override.yml data/conf/nginx data/conf/sogo \
+for f in mailcow.conf docker-compose.override.yml data/conf/nginx data/conf/sogo data/conf/dovecot/extra.conf \
          data/web/css/build/0081-custom-mailcow.css data/assets/ssl; do
   [ -e "$MAILCOW_DIR/$f" ] && custom+=("$f")
 done
