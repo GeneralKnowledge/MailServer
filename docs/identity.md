@@ -238,9 +238,10 @@ tool (ADR 0017):
 3. Ask the person to sign in to webmail through Keycloak, set their own
    password, and create app passwords for their mail apps; existing app
    passwords keep working.
-4. Record the link: until an admin operation exists (PR 15/16), note the
-   migration in the admin log. Reconciliation (PR 31) will report mailboxes
-   without a link.
+4. The link is recorded by the next reconciliation run (PR 31): a mailbox
+   without a link whose address is the email of exactly one Keycloak user
+   gets linked (`identity.link` in the audit log). Run
+   `scripts/reconcile.sh --dry-run` first to see it would.
 
 ### Open server checks (not provable against fakes)
 

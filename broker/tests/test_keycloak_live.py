@@ -39,6 +39,10 @@ def test_live_create_find_refuse_and_delete(kc):
         with pytest.raises(KeycloakError) as e:
             kc.create_user(username=name + "x", email=f"x-{name}@example.test", password="short")
         assert e.value.kind == "password" and "short" not in str(e.value)
+        # PR 31: reconciliation's user list carries email and enabled; no service accounts.
+        people = {u["id"]: u for u in kc.list_users()}
+        assert people[uid]["email"] == f"{name}@example.test" and people[uid]["enabled"] is True
+        assert not any(u["username"].startswith("service-account-") for u in people.values())
     finally:
         kc.delete_user(uid)
     assert kc.find_user(name) is None
