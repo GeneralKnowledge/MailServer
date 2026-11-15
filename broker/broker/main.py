@@ -42,6 +42,7 @@ from .store import Store
 log = logging.getLogger("broker")
 DAY = 86400
 IDEMPOTENCY_HEADER = "idempotency-key"
+SLOW_UPSTREAM_MS = 5000  # an answer slower than this marks the adapter degraded
 
 
 class CheckRequest(BaseModel):
@@ -157,12 +158,13 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
 
     @app.get("/v1/health", operation_id="health")
     def health():
-        components = {a.name: a.health().as_dict() for a in adapters}
-        try:
-            db.count("health.probe", "ok", 0)
-            components["control_plane_db"] = {"status": "ok"}
-        except Exception as e:  # noqa: BLE001
-            components["control_plane_db"] = {"status": "down", "detail": type(e).__name__}
+        components = {}
+        for a in adapters:
+            h = a.health().as_dict()
+            if h["status"] == "ok" and h.get("latency_ms", 0) > SLOW_UPSTREAM_MS:
+                h = {**h, "status": "degraded", "detail": f"slow: {h['latency_ms']} ms. {h.get('detail', '')}".strip()}
+            components[a.name] = h
+        components["control_plane_db"] = db.health()
         states = {c["status"] for c in components.values()}
         overall = "down" if "down" in states else "degraded" if "degraded" in states else "ok"
         now = clock()

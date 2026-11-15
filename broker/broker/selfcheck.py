@@ -1,4 +1,5 @@
-"""Check that the broker's mailcow key and allow-list work. Used by health-check.sh:
+"""Check that the broker's mailcow key and allow-list work (manual use; health-check.sh
+uses broker.probe and /v1/health since PR 13):
 
     docker compose exec -T broker python -m broker.selfcheck
 

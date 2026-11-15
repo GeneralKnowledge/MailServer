@@ -69,7 +69,7 @@ PR of its own.
 | 10 | Alias back end (mailcow-native) | List, create random/custom, expire, disable, delete own aliases; per-user limits; reserved names; SimpleLogin/addy-compatible endpoints behind per-user tokens. Built against fakes; done only after an Oracle rehearsal. **Needs E3** ([ADR 0013](adr/0013-alias-domain.md)) | 9 | Yes |
 | 11 | Keycloak and Postgres | **Validation gate first** ([ADR 0006](adr/0006-keycloak-identity-provider.md#validation-gate-before-deployment-added-2026-11-15)): not deployed on Oracle until unified identity is needed today and it fits the box. Then arm64 images, memory caps, capped JVM heap; realm, clients, groups as code; `/auth/` through mailcow nginx; admin console IP-restricted; in backups | 8 | Yes |
 | 12 | One identity | mailcow IdP set to Keycloak with sync and offboarding; mailbox templates; migration of existing mailboxes; Keycloak adapter; invitation creates the Keycloak user, then the mailbox. **Needs E5** ([ADR 0015](adr/0015-mail-client-passwords.md)) | 9, 11 | Yes |
-| 13 | Health contract | `/v1/health` itself exists since PR 9; PR 13 wires `health-check.sh` and the audit-5 alerts to it with the monitoring caller | 9 | No |
+| 13 | Health contract | `/v1/health` itself exists since PR 9; PR 13 wires `health-check.sh` and the audit-5 alerts to it with the monitoring caller, one alert per component. **Implemented in code**; not proven on Oracle | 9 | No |
 
 ## M6 – User experience
 
@@ -201,7 +201,7 @@ Earlier decisions D1–D9 (from the M5–M7 plan) still stand, with these change
 Stay open until tested on the Oracle box.
 
 - Audit fixes 6–7: edge network and published ports, no route from the
-  sign-up container to Postfix/Redis/internet, broker selfcheck against the
+  sign-up container to Postfix/Redis/internet, broker health probe against the
   real API, `sshd -T`, alerts arriving.
 - Rspamd `/metrics` reachable on mailcow's internal network (PR 27, deferred; check only if it is revived).
 - Keycloak start-up and steady RAM/CPU on two Ampere cores (PR 11; Kanidm
