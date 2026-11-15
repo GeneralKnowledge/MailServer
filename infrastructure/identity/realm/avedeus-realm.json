@@ -8,6 +8,17 @@
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
   "resetPasswordAllowed": true,
+  "smtpServer": {
+    "host": "${MAIL_HOSTNAME}",
+    "port": "587",
+    "starttls": "true",
+    "ssl": "false",
+    "auth": "true",
+    "user": "${KEYCLOAK_SMTP_USER}",
+    "password": "${KEYCLOAK_SMTP_PASSWORD}",
+    "from": "${KEYCLOAK_SMTP_USER}",
+    "fromDisplayName": "Avedeus Mail"
+  },
   "rememberMe": false,
   "editUsernameAllowed": false,
   "bruteForceProtected": true,

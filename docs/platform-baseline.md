@@ -13,6 +13,10 @@ shown working on the server, with a note of what was checked and when. A PR
 that moves no line says "baseline: no change". This stops work from looking
 finished when it has never been shown working together on the real box.
 
+PR 17 (2026-11-15): baseline lines unchanged. It closes a hole in line 1's
+identity (users could change their own email, which is how mailcow finds
+them; now admin-only, checked against a real Keycloak) and adds self-service
+recovery and invitation conveniences. Not deployed.
 Status as of PR 16 (2026-11-15). PR 16 moves line 4 forward **in code
 only**: account lifecycle (suspend, reactivate, quota, password reset,
 scheduled deletion) exists, admin only, every change audited with the admin

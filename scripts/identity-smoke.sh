@@ -12,7 +12,8 @@
 set -euo pipefail
 REPO_DIR="${REPO_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 DIR="$REPO_DIR/infrastructure/identity"
-ID="docker compose -f $DIR/docker-compose.yml"
+# --env-file: the compose file itself uses MAIL_HOSTNAME (extra_hosts, PR 17).
+ID="docker compose -f $DIR/docker-compose.yml --env-file $DIR/identity.env"
 KC="http://172.30.240.12:8080/auth"     # Keycloak's fixed address on avedeus-edge
 KEEP="${KEEP:-0}"
 fails=0

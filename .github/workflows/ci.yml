@@ -143,6 +143,8 @@ jobs:
           CONTROL_PLANE_OIDC_SECRET=$(r)
           PORTAL_OIDC_SECRET=$(r)
           ADMIN_OIDC_SECRET=$(r)
+          KEYCLOAK_SMTP_USER=noreply@mx.example.test
+          KEYCLOAK_SMTP_PASSWORD=$(r)
           EOF
           sed -i 's/^ *//' infrastructure/identity/identity.env
           KEEP=1 scripts/identity-smoke.sh

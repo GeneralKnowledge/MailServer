@@ -82,7 +82,7 @@ PR of its own.
 | 14 | Portal shell and links | `/account`, Keycloak sign-in; quota; a Security panel and other entries that **link** to native functionality instead of rebuilding it: Keycloak account console (sessions, MFA, password), mailcow's user page (app passwords, login history, spam settings, quarantine, Apple/CalDAV/CardDAV setup profiles), SOGo (mail, filters, vacation). Onboarding makes creating an app password the first step for mail apps. **Implemented in code** ([portal.md](portal.md); sign-in checked end to end against a real Keycloak in CI); not deployed, not proven on Oracle | 12 | Yes |
 | 15 | Admin console split | Admin pages leave the sign-up app for their own container at `/console` (mailcow keeps `/admin`); Keycloak `admins` group + one-time code at every sign-in + IP allow-list; read-only accounts list and audit view; control plane verifies the admin's token. Invitations stay in the sign-up app behind an internal API ([ADR 0020](adr/0020-admin-console-and-invitations.md), owner's choice). **Implemented in code** ([admin-console.md](admin-console.md); two-factor sign-in checked against a real Keycloak in CI); not deployed, not proven on Oracle | 12 | Yes |
 | 16 | Account lifecycle | Admin-only suspend, reactivate, quota, forced password reset, soft delete with 30-day grace and fresh-backup check; all audited. Suspend keeps mail arriving (mailcow "disallow login"); app passwords blocked, not revoked ([ADR 0021](adr/0021-account-lifecycle.md)). **Implemented in code** (Keycloak calls checked against a real Keycloak in CI); not deployed, not proven on Oracle | 15 | Yes |
-| 17 | Self-service account | Password, MFA, recovery via Keycloak's account console; recovery email; bulk invites and resend | 14 | Yes |
+| 17 | Self-service account | Password, MFA, recovery via Keycloak's account console; recovery email; bulk invites and resend. Keycloak's "Forgot password" mails the mailbox through mailcow's port 587; admin-assisted reset in Keycloak's console otherwise; users can't change their own email (mailcow finds them by it). **Implemented in code**; mail delivery not proven, not deployed | 14 | Yes |
 | 18 | One look | Avedeus theme for Keycloak; "Sign in with Avedeus" as the only button on mailcow's login | 12 | Yes |
 
 ## M7 – Privacy
@@ -240,6 +240,12 @@ Stay open until tested on the Oracle box.
   (PR 16; also affects PR 14's Security panel). Also whether mailcow's
   identity-provider sync changes a mailbox's state when its Keycloak user is
   disabled (ADR 0021), and the deletion job against real mailcow and backups.
+- PR 17: Keycloak's "Forgot password" mail reaching mailcow's port 587 at
+  `avedeus-edge`'s gateway (`172.30.240.1`) and being delivered; and, seen in
+  local testing, that any container on `avedeus-edge` can reach the host's
+  published ports through that gateway. If that holds on the server, audit
+  fix 6 ("no route from the sign-up container to Postfix") needs a host
+  firewall rule allowing only Keycloak to 587.
 - Every native default from audit O1 works on ARM64 and survives a mailcow
   update (lazy-expunge via `data/conf/dovecot/extra.conf`, quarantine digests,
   mailbox template defaults, SOGo remote-content default).

@@ -99,6 +99,21 @@ Setup (once):
    `ADMIN_TOKEN=$(openssl rand -hex 32)` with `ADMIN_CLIENTS=127.0.0.1`
    (the CLI runs inside the broker container). Restart the broker.
 
+## Someone forgot their password (PR 17)
+
+1. They use **"Forgot password?"** on the sign-in page. Keycloak emails a
+   reset link to their mailbox, which a mail app signed in with an app
+   password can usually still read.
+2. If they can't read their mail: confirm who they are some other way (a
+   call, a message from an address you know), then in **Keycloak's admin
+   console** → Users → the user → Credentials → *Reset password* with
+   *Temporary* on. Give them that password out of band; Keycloak makes them
+   choose a new one at the next sign-in. (The console's *Ask for a new
+   password* only helps someone who still knows their current password.)
+3. Lost two-factor device: they use a backup code if they made some;
+   otherwise Users → the user → Credentials → delete the OTP credential, and
+   they set it up again at the next sign-in.
+
 ## Invitations
 
 - Default: single use, 7 days, 2 GB. Quota and expiry can be changed per

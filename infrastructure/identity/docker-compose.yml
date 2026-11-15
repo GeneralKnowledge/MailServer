@@ -75,6 +75,12 @@ services:
         ipv4_address: 172.30.240.12
         aliases: [keycloak]
     # No ports published: reachable only through mailcow's nginx on avedeus-edge.
+    # PR 17: "Forgot password" mail goes to mailcow's submission port (587,
+    # published on the host) at avedeus-edge's gateway, the host's own
+    # address on that internal network, under the mail host's name so the
+    # certificate verifies. Run compose with --env-file identity.env.
+    extra_hosts:
+      - "${MAIL_HOSTNAME:?run with --env-file identity.env}:172.30.240.1"
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     mem_limit: 1g
