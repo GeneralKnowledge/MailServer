@@ -28,7 +28,7 @@ and **account export** (runbook first, PR 29).
 | Two-factor | TOTP, WebAuthn/FIDO2, Yubi OTP; admin can force TFA and a password change ([docs](https://docs.mailcow.email/manual-guides/mailcow-UI/u_e-mailcow_ui-tfa/)) | Adequate | Moves to Keycloak with PR 12 |
 | Quarantine | User lists, releases, deletes; picks digest frequency and category; admin edits the template | Adequate | Digests on by default (O1) |
 | Spam controls | Per-user score thresholds, sender allow/block lists, sub-address tag handling, per-user TLS enforcement (`templates/user/Spamfilter.twig`, `tab-user-settings.twig`) | Adequate | Configuration and links (PR 20) |
-| Mail filters | SOGo filter editor, vacation, forwarding (`SOGoSieveScriptsEnabled`, `SOGoVacationEnabled`, `SOGoForwardEnabled`); mailcow shows the active script read-only | Awkward (discoverability) | SOGo stays the owner ([ADR 0014](adr/0014-mail-rule-owner.md), proposed); PR 23–25 deferred |
+| Mail filters | SOGo filter editor, vacation, forwarding (`SOGoSieveScriptsEnabled`, `SOGoVacationEnabled`, `SOGoForwardEnabled`); mailcow shows the active script read-only | Awkward (discoverability) | SOGo owns rules ([ADR 0014](adr/0014-mail-rule-owner.md), accepted); PR 23–25 dropped |
 | Login history | "Recent successful connections": time, IP, protocol, clearable | Awkward | Link; new-sign-in alerts (PR 26) |
 | Sessions | None in mailcow; Keycloak's account console lists and ends browser sessions | Awkward | Link (PR 14); IMAP/SOGo session end is an open server check |
 | Account recovery | Recovery email + forgot-password, only for `authsource = mailcow` ([docs](https://docs.mailcow.email/manual-guides/mailcow-UI/u_e-mailcow_ui-forgot_password/)) | Awkward | Keycloak reset after PR 12 (PR 17) |
@@ -49,7 +49,7 @@ work proposed here). For the record, mailcow users already have time-limited
 | O2 | Message trace | Accepted as **PR 34**: correlate the whole journey, read-only, admin-only, honest about limits. A user-facing explanation needs its own permissions and privacy decision |
 | O3 | Security page by linking | Accepted: PR 14 links to Keycloak and mailcow; PR 26 keeps new-sign-in notifications |
 | O4 | Privacy as configuration | Accepted: PR 20 is configuration and discoverability only |
-| O5 | SOGo stays the rule owner | Owner favours it; recorded as **proposed** in ADR 0014. PR 23–25 deferred |
+| O5 | SOGo stays the rule owner | Accepted (ADR 0014, later the same day). PR 23–25 dropped |
 | O6 | Account export | Accepted: runbooks in PR 29; no export service until there is a demonstrated need |
 
 ## Not worth building

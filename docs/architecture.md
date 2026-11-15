@@ -151,9 +151,9 @@ and may use only its row's implemented operations.
 | Caller | Credential | Allowed operations | Identity of the subject comes from |
 |---|---|---|---|
 | `signup` (public `/join`) | Bearer token + source IP | Check address; create mailbox from an invitation (from PR 12: redeem invitation, which creates the Keycloak user, then the mailbox) | The invitation, never a request field |
-| `portal` (`/account`) | Service credential + the user's Keycloak access token | The signed-in user's own aliases, rules, privacy settings, notifications | The verified Keycloak token (`sub`), never a request field |
+| `portal` (`/account`) | Service credential + the user's Keycloak access token | The signed-in user's own notifications; links to native settings (aliases parked, rules owned by SOGo, privacy is configuration) | The verified Keycloak token (`sub`), never a request field |
 | `admin` (`/admin`) | Service credential + admin's Keycloak token in the admin group, TOTP, allowed IP | Account lifecycle, invitations, audit read | The verified Keycloak token |
-| `pm-token` (password managers) | Per-user token, hashed at rest | Create a random alias for the token's owner | The token's owner |
+| `pm-token` (password managers) | Per-user token, hashed at rest | Create a random alias for the token's owner (parked with PR 10) | The token's owner |
 | `personal-token` / MCP (M10) | Per-user scoped, IP-limited, short-lived token | A subset of the `portal` row, read-only first | The token's owner |
 | `monitoring` | Bearer token + source IP | `/health` only | n/a |
 
