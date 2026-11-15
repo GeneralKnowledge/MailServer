@@ -1,0 +1,488 @@
+# Avedeus control plane: the service contract.
+#
+# Today the control plane is the provisioning broker in broker/ (audit fix 7).
+# Operations marked `x-avedeus-status: implemented` exist in broker/ now and
+# CI checks that the broker's routes match them exactly. Operations marked
+# `planned` are the agreed shape for the PR named in `x-avedeus-pr`; that PR
+# may refine the details (fields, status codes) but not widen who may call
+# them, which is fixed in capabilities.yaml.
+#
+# Nothing here is proven on the Oracle server yet.
+openapi: 3.1.0
+info:
+  title: Avedeus control plane
+  version: 0.1.0
+  description: |
+    The only component that holds upstream credentials (ADR 0003). Callers
+    authenticate with their own credential and may use only the operations
+    their row in capabilities.yaml grants (enforced from PR 9).
+
+    Conventions:
+    - Errors are always `{"ok": false, "kind": <ErrorKind>, "detail": <text>}`.
+    - Planned state-changing operations take an `Idempotency-Key` header; a
+      repeat with the same key returns the first result (PR 9). The
+      implemented createMailbox predates this and is made safe by checking
+      whether the mailbox exists after a lost reply.
+    - The subject of a portal or token operation comes from the verified
+      Keycloak token or the token's owner, never from a request field.
+    - Every state-changing call and every refused call writes one audit event
+      (audit-event.schema.json).
+servers:
+  - url: http://172.30.240.11:8100
+    description: Internal only, on avedeus-edge. No published port.
+
+tags:
+  - name: health
+  - name: signup
+  - name: aliases
+  - name: password-manager
+  - name: lifecycle
+    description: Admin-only. Never granted to the signup caller (ADR 0010).
+  - name: audit
+
+paths:
+  /healthz:
+    get:
+      operationId: healthz
+      tags: [health]
+      summary: Liveness. No upstream call, no authentication.
+      x-avedeus-status: implemented
+      security: []
+      responses:
+        "200":
+          description: Process is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: {const: true}
+
+  /v1/upstream:
+    get:
+      operationId: upstreamCheck
+      tags: [health]
+      summary: Checks that the mailcow key and IP allow-list work.
+      description: |
+        No client calls this over HTTP today. health-check.sh runs the same
+        check with `python -m broker.selfcheck` inside the broker container.
+      x-avedeus-status: implemented
+      responses:
+        "200":
+          description: mailcow answered with this key.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, mailcow_version]
+                properties:
+                  ok: {const: true}
+                  mailcow_version: {type: string}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
+
+  /v1/health:
+    get:
+      operationId: health
+      tags: [health]
+      summary: Health of the control plane and every adapter, in one shape.
+      x-avedeus-status: planned
+      x-avedeus-pr: 13
+      responses:
+        "200":
+          description: Overall and per-adapter health.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Health"}
+
+  /v1/addresses/check:
+    post:
+      operationId: checkAddress
+      tags: [signup]
+      summary: Is <local_part>@<the one mail domain> valid and free?
+      x-avedeus-status: implemented
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [local_part]
+              additionalProperties: false
+              properties:
+                local_part: {type: string, maxLength: 64}
+      responses:
+        "200":
+          description: Validity and availability. `valid=false` carries a reason and no upstream call is made.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, valid, reason, taken, mailbox]
+                additionalProperties: false
+                properties:
+                  ok: {const: true}
+                  valid: {type: boolean}
+                  reason: {type: [string, "null"]}
+                  taken: {type: boolean, description: A mailbox or alias already uses the address.}
+                  mailbox: {type: boolean, description: The address is a mailbox.}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
+
+  /v1/mailboxes:
+    post:
+      operationId: createMailbox
+      tags: [signup]
+      summary: Create a mailbox on the one mail domain.
+      description: |
+        The broker enforces the fixed domain, username rules, reserved names,
+        the quota ceiling and a daily creation cap whatever the caller sends.
+        Replaced by createAccount in PR 12, when Keycloak creates identities.
+      x-avedeus-status: implemented
+      x-avedeus-audit: mailbox.create
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [local_part, password, quota_mb]
+              additionalProperties: false
+              properties:
+                local_part: {type: string, maxLength: 64}
+                password: {type: string, minLength: 8, maxLength: 128, writeOnly: true}
+                name: {type: string, maxLength: 100, default: ""}
+                quota_mb: {type: integer}
+      responses:
+        "201":
+          description: Created (or confirmed to exist after mailcow's reply was lost).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, address]
+                additionalProperties: false
+                properties:
+                  ok: {const: true}
+                  address: {type: string, format: email}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
+        "429": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
+
+  /v1/accounts:
+    post:
+      operationId: createAccount
+      tags: [signup]
+      summary: Redeem an invitation; creates the Keycloak user, then the mailbox.
+      x-avedeus-status: planned
+      x-avedeus-pr: 12
+      x-avedeus-audit: account.create
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [local_part, password, invitation]
+              properties:
+                local_part: {type: string, maxLength: 64}
+                password: {type: string, minLength: 8, maxLength: 128, writeOnly: true}
+                name: {type: string, maxLength: 100}
+                invitation: {type: string, description: Opaque invitation reference; never the raw token.}
+      responses:
+        "201": {description: Account created.}
+        default: {$ref: "#/components/responses/Error"}
+    get:
+      operationId: listAccounts
+      tags: [lifecycle]
+      summary: Accounts with mailbox state, quota and use, created time.
+      x-avedeus-status: planned
+      x-avedeus-pr: 15
+      responses:
+        "200": {description: Account list.}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/accounts/{account}:
+    parameters: [{$ref: "#/components/parameters/Account"}]
+    get:
+      operationId: getAccount
+      tags: [lifecycle]
+      summary: One account with its history.
+      x-avedeus-status: planned
+      x-avedeus-pr: 15
+      responses:
+        "200": {description: Account.}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/accounts/{account}/suspend:
+    parameters: [{$ref: "#/components/parameters/Account"}]
+    post:
+      operationId: suspendAccount
+      tags: [lifecycle]
+      summary: Keycloak disable, mailcow login off, app passwords revoked.
+      x-avedeus-status: planned
+      x-avedeus-pr: 16
+      x-avedeus-audit: account.suspend
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      responses:
+        "200": {description: Suspended.}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/accounts/{account}/reactivate:
+    parameters: [{$ref: "#/components/parameters/Account"}]
+    post:
+      operationId: reactivateAccount
+      tags: [lifecycle]
+      x-avedeus-status: planned
+      x-avedeus-pr: 16
+      x-avedeus-audit: account.reactivate
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      responses:
+        "200": {description: Reactivated.}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/accounts/{account}/quota:
+    parameters: [{$ref: "#/components/parameters/Account"}]
+    put:
+      operationId: setAccountQuota
+      tags: [lifecycle]
+      x-avedeus-status: planned
+      x-avedeus-pr: 16
+      x-avedeus-audit: account.quota
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quota_mb]
+              properties:
+                quota_mb: {type: integer, minimum: 1}
+      responses:
+        "200": {description: Quota set.}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/accounts/{account}/password-reset:
+    parameters: [{$ref: "#/components/parameters/Account"}]
+    post:
+      operationId: forcePasswordReset
+      tags: [lifecycle]
+      summary: Forces a reset at next sign-in through Keycloak.
+      x-avedeus-status: planned
+      x-avedeus-pr: 16
+      x-avedeus-audit: account.password_reset
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      responses:
+        "200": {description: Reset required.}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/accounts/{account}/deletion:
+    parameters: [{$ref: "#/components/parameters/Account"}]
+    post:
+      operationId: scheduleDeletion
+      tags: [lifecycle]
+      summary: Suspend now, delete after the grace period and only after a newer backup exists.
+      x-avedeus-status: planned
+      x-avedeus-pr: 16
+      x-avedeus-audit: account.deletion_scheduled
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      responses:
+        "202": {description: Deletion scheduled.}
+        default: {$ref: "#/components/responses/Error"}
+    delete:
+      operationId: cancelDeletion
+      tags: [lifecycle]
+      x-avedeus-status: planned
+      x-avedeus-pr: 16
+      x-avedeus-audit: account.deletion_cancelled
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      responses:
+        "200": {description: Deletion cancelled; account reactivated.}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/me/aliases:
+    get:
+      operationId: listOwnAliases
+      tags: [aliases]
+      summary: The signed-in user's aliases.
+      x-avedeus-status: planned
+      x-avedeus-pr: 10
+      responses:
+        "200": {description: Aliases.}
+        default: {$ref: "#/components/responses/Error"}
+    post:
+      operationId: createOwnAlias
+      tags: [aliases]
+      summary: Random or custom alias, optional expiry, within per-user limits.
+      x-avedeus-status: planned
+      x-avedeus-pr: 10
+      x-avedeus-audit: alias.create
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind: {enum: [random, custom]}
+                local_part: {type: string, maxLength: 64}
+                expires_at: {type: string, format: date-time}
+                note: {type: string, maxLength: 200}
+      responses:
+        "201": {description: Alias created.}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/me/aliases/{alias}:
+    parameters: [{$ref: "#/components/parameters/Alias"}]
+    patch:
+      operationId: updateOwnAlias
+      tags: [aliases]
+      summary: Turn on or off, change expiry or note.
+      x-avedeus-status: planned
+      x-avedeus-pr: 10
+      x-avedeus-audit: alias.update
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      responses:
+        "200": {description: Updated.}
+        default: {$ref: "#/components/responses/Error"}
+    delete:
+      operationId: deleteOwnAlias
+      tags: [aliases]
+      x-avedeus-status: planned
+      x-avedeus-pr: 10
+      x-avedeus-audit: alias.delete
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      responses:
+        "204": {description: Deleted.}
+        default: {$ref: "#/components/responses/Error"}
+
+  /api/alias/random/new:
+    post:
+      operationId: pmCreateRandomAliasSimpleLoginShape
+      tags: [password-manager]
+      summary: SimpleLogin-compatible endpoint so password managers can create an alias for the token's owner.
+      description: Copies the API shape only; SimpleLogin itself is not used (ADR 0005, 0011).
+      x-avedeus-status: planned
+      x-avedeus-pr: 10
+      x-avedeus-audit: alias.create
+      responses:
+        "201": {description: Alias created.}
+        default: {$ref: "#/components/responses/Error"}
+
+  /api/v1/aliases:
+    post:
+      operationId: pmCreateAliasAddyShape
+      tags: [password-manager]
+      summary: addy-compatible endpoint so password managers can create an alias for the token's owner.
+      description: Copies the API shape only; addy.io itself is rejected (ADR 0011).
+      x-avedeus-status: planned
+      x-avedeus-pr: 10
+      x-avedeus-audit: alias.create
+      responses:
+        "201": {description: Alias created.}
+        default: {$ref: "#/components/responses/Error"}
+
+  /v1/audit:
+    get:
+      operationId: readAudit
+      tags: [audit]
+      summary: Audit events, newest first, filterable by account, action and time.
+      x-avedeus-status: planned
+      x-avedeus-pr: 28
+      responses:
+        "200":
+          description: Events in the shape of audit-event.schema.json.
+        default: {$ref: "#/components/responses/Error"}
+
+components:
+  securitySchemes:
+    callerToken:
+      type: http
+      scheme: bearer
+      description: |
+        Each caller's own credential, also checked against its allowed source
+        addresses. Today one shared BROKER_TOKEN unlocks every broker route;
+        per-caller credentials and capability enforcement arrive in PR 9.
+    userToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: The end user's Keycloak access token, passed by portal and admin (from PR 12).
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 16, maxLength: 128}
+    Account:
+      name: account
+      in: path
+      required: true
+      schema: {type: string, description: Avedeus user id.}
+    Alias:
+      name: alias
+      in: path
+      required: true
+      schema: {type: string, format: email}
+
+  responses:
+    Error:
+      description: Error envelope.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+
+  schemas:
+    ErrorKind:
+      type: string
+      enum:
+        - invalid       # 422 request breaks a rule
+        - password      # 422 mailcow rejected the password
+        - taken         # 409 address already in use
+        - limit         # 429 a cap was reached
+        - unauthorized  # 401 missing or wrong credential
+        - forbidden     # 403 caller or source not allowed, or operation not in its capabilities
+        - auth          # 502 upstream refused our credential
+        - unavailable   # 502 upstream unreachable or timed out
+        - rejected      # 502 upstream refused the request
+        - not_found     # 404 (planned)
+        - conflict      # 409 idempotency key reused with a different body (planned)
+    Error:
+      type: object
+      required: [ok, kind, detail]
+      additionalProperties: false
+      properties:
+        ok: {const: false}
+        kind: {$ref: "#/components/schemas/ErrorKind"}
+        detail: {type: string, maxLength: 500}
+    Health:
+      type: object
+      required: [status, checked_at, components]
+      properties:
+        status: {$ref: "#/components/schemas/HealthStatus"}
+        checked_at: {type: string, format: date-time}
+        components:
+          type: object
+          description: One entry per adapter (mailcow, keycloak, …) and the control plane's own DB.
+          additionalProperties:
+            type: object
+            required: [status]
+            properties:
+              status: {$ref: "#/components/schemas/HealthStatus"}
+              detail: {type: string, maxLength: 500}
+              latency_ms: {type: integer, minimum: 0}
+    HealthStatus:
+      enum: [ok, degraded, down]
+
+security:
+  - callerToken: []
