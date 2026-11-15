@@ -41,11 +41,20 @@ BROKER_ENV = {
 }
 
 
-def make_broker_client(fake=None, *, mailcow=None, broker_env=None, clock=None) -> BrokerClient:
-    """A BrokerClient wired to an in-process broker app (fake mailcow behind it)."""
+def make_broker_client(fake=None, *, mailcow=None, broker_env=None, clock=None, keycloak=None) -> BrokerClient:
+    """A BrokerClient wired to an in-process broker app (fake mailcow behind it;
+    with `keycloak`, a fake Keycloak too and IDENTITY_PROVIDER=keycloak)."""
+    if keycloak is not None:
+        import fake_keycloak
+        from broker.keycloak import KeycloakClient
+        broker_env = {"IDENTITY_PROVIDER": "keycloak", "KEYCLOAK_CLIENT_SECRET": fake_keycloak.CLIENT_SECRET,
+                      **(broker_env or {})}
     bs = load_broker_settings({**BROKER_ENV, **(broker_env or {})})
     mc = mailcow or MailcowClient(bs.mailcow_api_url, bs.mailcow_api_key, transport=fake.transport())
     kw = {"clock": clock} if clock else {}
+    if keycloak is not None:
+        kw["keycloak"] = KeycloakClient(bs.keycloak_url, bs.keycloak_realm, bs.keycloak_client_id,
+                                        bs.keycloak_client_secret, transport=keycloak.transport())
     broker_app = create_broker_app(bs, mailcow=mc, **kw)
     return BrokerClient("http://broker", BROKER_TOKEN, transport=_TC(broker_app)._transport)
 

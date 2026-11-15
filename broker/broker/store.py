@@ -1,4 +1,5 @@
-"""The control plane's own database (ADR 0007): the audit log and idempotency records.
+"""The control plane's own database (ADR 0007): the audit log, idempotency records
+and identity links (mailbox address <-> Keycloak user id, ADR 0004; PR 12).
 
 SQLite in the broker's own volume. The audit table is append-only: triggers
 refuse UPDATE and DELETE, so an event can't be edited or removed through
@@ -42,6 +43,15 @@ CREATE TABLE IF NOT EXISTS idempotency (
     body TEXT,
     ts REAL NOT NULL,
     PRIMARY KEY (caller, key)
+);
+
+-- PR 12: which identity-provider user a mailbox belongs to. Links only:
+-- Keycloak owns the identity, mailcow owns the mailbox (ADR 0004).
+CREATE TABLE IF NOT EXISTS identity_links (
+    address TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    ts REAL NOT NULL
 );
 """
 
@@ -157,3 +167,25 @@ class Store:
     def prune_idempotency(self) -> None:
         with self.lock:
             self.db.execute("DELETE FROM idempotency WHERE ts < ?", (self.clock() - IDEMPOTENCY_KEEP_SECONDS,))
+
+    # ---- identity links (PR 12) ----------------------------------------------
+
+    def link_set(self, address: str, provider: str, subject: str) -> None:
+        with self.lock:
+            self.db.execute("INSERT OR REPLACE INTO identity_links (address, provider, subject, ts) VALUES (?,?,?,?)",
+                            (address.lower(), provider, subject, self.clock()))
+
+    def link_get(self, address: str, provider: str) -> str | None:
+        with self.lock:
+            row = self.db.execute("SELECT subject FROM identity_links WHERE address=? AND provider=?",
+                                  (address.lower(), provider)).fetchone()
+        return row[0] if row else None
+
+    def link_delete(self, address: str, provider: str) -> None:
+        with self.lock:
+            self.db.execute("DELETE FROM identity_links WHERE address=? AND provider=?", (address.lower(), provider))
+
+    def links(self, provider: str) -> dict[str, str]:
+        with self.lock:
+            rows = self.db.execute("SELECT address, subject FROM identity_links WHERE provider=?", (provider,)).fetchall()
+        return dict(rows)

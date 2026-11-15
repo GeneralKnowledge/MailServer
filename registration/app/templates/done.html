@@ -12,7 +12,13 @@
     <tr><th>Incoming (IMAP)</th><td>{{ webmail_url | replace("https://", "") }}, port 993, SSL/TLS</td></tr>
     <tr><th>Outgoing (SMTP)</th><td>{{ webmail_url | replace("https://", "") }}, port 465 SSL/TLS (or 587 STARTTLS)</td></tr>
   </table>
+  {% if app_password_required is sameas false %}
   <p class="muted">Most apps set this up automatically when you enter your address and password.</p>
+  {% else %}
+  <p><strong>Mail apps use an app password, not the password you just chose.</strong>
+    Open webmail, go to your mailbox settings, and create an app password under
+    <em>App passwords</em>. Enter your address and that app password in the app.</p>
+  {% endif %}
 </details>
 <p class="muted">We can't recover a forgotten password automatically. Contact the person who invited you if you lose it.</p>
 {% endblock %}

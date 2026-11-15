@@ -2,7 +2,9 @@
 
 The registration app never talks to mailcow and never holds its API key.
 It can only ask the control plane whether an address is free and to create
-a mailbox; the control plane applies its own rules and limits.
+an account (createAccount: identity, then mailbox; PR 12); the control plane
+applies its own rules and limits. It never learns whether Keycloak is on,
+only whether mail apps need an app password.
 """
 
 from __future__ import annotations
@@ -77,6 +79,15 @@ class BrokerClient:
 
     def mailbox_exists(self, local_part: str) -> bool:
         return self.check(local_part).mailbox
+
+    def create_account(self, *, local_part: str, password: str, quota_mb: int, invitation: str,
+                       idempotency_key: str, name: str = "") -> tuple[str, bool]:
+        """createAccount (PR 12): the control plane creates the identity, then the
+        mailbox. Returns the address and whether mail apps need an app password."""
+        d = self._request("POST", "/v1/accounts", headers={"Idempotency-Key": idempotency_key}, json={
+            "local_part": local_part, "password": password, "quota_mb": quota_mb, "name": name,
+            "invitation": invitation})
+        return str(d.get("address", "")), bool(d.get("app_password_required"))
 
     def create_mailbox(self, *, local_part: str, password: str, quota_mb: int, name: str = "",
                        idempotency_key: str | None = None) -> str:

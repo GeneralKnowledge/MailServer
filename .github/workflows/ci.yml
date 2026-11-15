@@ -105,7 +105,16 @@ jobs:
           CONTROL_PLANE_OIDC_SECRET=$(r)
           EOF
           sed -i 's/^ *//' infrastructure/identity/identity.env
-          scripts/identity-smoke.sh
+          KEEP=1 scripts/identity-smoke.sh
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      # PR 12: the control plane's Keycloak adapter against the real admin API.
+      - name: Keycloak adapter against the running Keycloak
+        run: |
+          pip install -r broker/requirements.txt -r broker/requirements-dev.txt
+          KEYCLOAK_LIVE_SECRET="$(sed -n 's/^CONTROL_PLANE_OIDC_SECRET=//p' infrastructure/identity/identity.env)" \
+            python -m pytest -q broker/tests/test_keycloak_live.py
 
   audit:
     name: Dependency vulnerabilities

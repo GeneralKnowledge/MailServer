@@ -9,7 +9,8 @@ idempotency keys and health. No workflow engine, event bus or plugins.
     GET  /v1/health            control plane + adapter health     (monitoring)
     GET  /v1/upstream          the mailcow key and allow-list work (monitoring)
     POST /v1/addresses/check   is <local_part>@<domain> free?      (signup)
-    POST /v1/mailboxes         create <local_part>@<domain>        (signup)
+    POST /v1/accounts          create an account: identity, then mailbox (signup; PR 12)
+    POST /v1/mailboxes         create <local_part>@<domain>        (signup; superseded by /v1/accounts)
 
 Every caller has its own token and source addresses (config.py), and may use
 only the operations in capabilities.py. Every state-changing call and every
@@ -23,6 +24,7 @@ from __future__ import annotations
 import hmac
 import ipaddress
 import logging
+import secrets
 import threading
 import time
 import uuid
@@ -35,6 +37,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .capabilities import CAPABILITIES, PUBLIC
 from .config import Caller, Settings, load_settings
+from .keycloak import KeycloakClient, KeycloakError
 from .mailcow import MailcowClient, MailcowError
 from .rules import local_part_error
 from .store import Store
@@ -56,6 +59,12 @@ class CreateRequest(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     name: str = Field(default="", max_length=100)
     quota_mb: int
+
+
+class AccountRequest(CreateRequest):
+    # Opaque reference to the sign-up app's invitation, recorded in the audit
+    # log. Never the invitation's secret token.
+    invitation: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 class Refused(Exception):
@@ -81,11 +90,15 @@ def _client_allowed(host: str, allowed: tuple[str, ...]) -> bool:
 
 
 def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | None = None,
-               store: Store | None = None, clock=time.time) -> FastAPI:
+               store: Store | None = None, keycloak: KeycloakClient | None = None, clock=time.time) -> FastAPI:
     s = settings or load_settings()
     mc = mailcow or MailcowClient(s.mailcow_api_url, s.mailcow_api_key, s.mailcow_tls_hostname, s.mailcow_verify_tls)
     db = store or Store(s.db_path, clock=clock)
-    adapters = [mc]
+    kc: KeycloakClient | None = None
+    if s.identity_provider == "keycloak":
+        kc = keycloak or KeycloakClient(s.keycloak_url, s.keycloak_realm, s.keycloak_client_id,
+                                        s.keycloak_client_secret)
+    adapters = [mc] + ([kc] if kc else [])
     create_lock = threading.Lock()  # one creation at a time: keeps the cap and checks exact
 
     def host_of(request: Request) -> str:
@@ -194,18 +207,40 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
             return _err(502, e.kind, e.detail)
         return {"ok": True, "valid": True, "reason": None, "taken": taken, "mailbox": mailbox}
 
+    @app.post("/v1/accounts", operation_id="createAccount")
+    def create_account(body: AccountRequest, request: Request):
+        return provision(body, request, operation="createAccount", action="account.create",
+                         invitation=body.invitation)
+
     @app.post("/v1/mailboxes", operation_id="createMailbox")
-    def create(body: CreateRequest, request: Request):
+    def create_mailbox(body: CreateRequest, request: Request):
+        if kc:
+            # With one identity, a mailbox without its Keycloak user would be
+            # an account nobody can sign in to. Only createAccount may create.
+            audit(request, action="mailbox.create", outcome="refused", error_kind="conflict",
+                  operation="createMailbox", address=address(body.local_part.strip().lower()))
+            return _err(409, "conflict", "the identity provider is on: use createAccount (POST /v1/accounts)")
+        return provision(body, request, operation="createMailbox", action="mailbox.create")
+
+    def provision(body: CreateRequest, request: Request, *, operation: str, action: str,
+                  invitation: str | None = None):
+        """Validate, apply limits and idempotency, then create (identity first, then mailbox)."""
         caller: Caller = request.state.caller
         key = request.headers.get(IDEMPOTENCY_HEADER) or None
         local = body.local_part.strip().lower()
         addr = address(local)
-        ctx = {"operation": "createMailbox", "address": addr, "adapter": mc.name, "idempotency_key": key}
+        ctx = {"operation": operation, "address": addr, "adapter": kc.name if kc else mc.name,
+               "idempotency_key": key}
+        changes = {"quota_mb": {"from": None, "to": body.quota_mb}}
+        if invitation:
+            changes["invitation"] = {"from": None, "to": invitation}
 
         def refuse(status: int, kind: str, detail: str, outcome: str = "refused") -> JSONResponse:
-            audit(request, action="mailbox.create", outcome=outcome, error_kind=kind, **ctx)
+            audit(request, action=action, outcome=outcome, error_kind=kind, **ctx)
             return _err(status, kind, detail)
 
+        if key is None and operation == "createAccount":
+            return refuse(422, "invalid", "Idempotency-Key is required")
         if key is not None and not 16 <= len(key) <= 128:
             return refuse(422, "invalid", "Idempotency-Key must be 16-128 characters")
         err = local_part_error(local, reserved=s.reserved, min_len=s.min_username_len)
@@ -218,47 +253,65 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
 
         if key:
             fp = Store.fingerprint({**body.model_dump(), "local_part": local})
-            prior = db.idem_begin(caller.name, key, "createMailbox", fp)
+            prior = db.idem_begin(caller.name, key, operation, fp)
             if prior and prior[0] == "replay":
                 return JSONResponse(prior[2], status_code=prior[1])
             if prior:
                 return refuse(409, "conflict", prior[1])
 
+        # Tells the sign-up page what to say about mail apps: with one identity
+        # they need an app password (ADR 0015); without it, the account password works.
+        result = {"ok": True, "address": addr}
+        if operation == "createAccount":
+            result["app_password_required"] = kc is not None
+
         def done(status: int, payload: dict, outcome: str = "ok", detail: str = "") -> JSONResponse:
-            audit(request, action="mailbox.create", outcome=outcome,
-                  changes={"quota_mb": {"from": None, "to": body.quota_mb}}, **ctx)
+            audit(request, action=action, outcome=outcome, changes=changes, **ctx)
             if key:
                 db.idem_finish(caller.name, key, status, payload)
             log.info("created %s quota=%sMB%s", addr, body.quota_mb, f" ({detail})" if detail else "")
             return JSONResponse(payload, status_code=status)
 
+        def created_today() -> int:
+            since = clock() - DAY
+            return db.count("mailbox.create", "ok", since) + db.count("account.create", "ok", since)
+
+        def add_mailbox(password: str, authsource: str) -> JSONResponse | None:
+            """Create the mailbox; None if mailcow definitively refused (Refused raised)."""
+            try:
+                mc.add_mailbox(local_part=local, domain=s.mail_domain, password=password,
+                               quota_mb=body.quota_mb, name=name, authsource=authsource)
+            except MailcowError as e:
+                if e.kind == "unavailable":
+                    # The mailbox may exist even though mailcow's reply was lost.
+                    try:
+                        exists = mc.mailbox_exists(addr)
+                    except MailcowError:
+                        exists = False
+                    if exists:
+                        return done(201, result, detail=f"confirmed after error: {e.detail}")
+                log.warning("create %s failed: %s", addr, e)
+                if e.kind == "taken":
+                    raise Refused(409, "taken", e.detail) from e
+                if e.kind == "password":
+                    raise Refused(422, "password", e.detail) from e
+                raise Refused(502, e.kind, e.detail) from e
+            return done(201, result)
+
         try:
             with create_lock:
                 # The daily cap counts successful creations in the audit log, so it survives restarts.
-                if db.count("mailbox.create", "ok", clock() - DAY) >= s.max_creates_per_day:
+                if created_today() >= s.max_creates_per_day:
                     log.warning("daily limit reached, refused %s", addr)
                     raise Refused(429, "limit", f"more than {s.max_creates_per_day} new mailboxes in 24 h")
                 try:
                     if mc.address_taken(addr):
                         raise Refused(409, "taken", addr)
-                    mc.add_mailbox(local_part=local, domain=s.mail_domain, password=body.password,
-                                   quota_mb=body.quota_mb, name=name)
                 except MailcowError as e:
-                    if e.kind == "unavailable":
-                        # The mailbox may exist even though mailcow's reply was lost.
-                        try:
-                            exists = mc.mailbox_exists(addr)
-                        except MailcowError:
-                            exists = False
-                        if exists:
-                            return done(201, {"ok": True, "address": addr}, detail=f"confirmed after error: {e.detail}")
-                    log.warning("create %s failed: %s", addr, e)
-                    if e.kind == "taken":
-                        raise Refused(409, "taken", e.detail) from e
-                    if e.kind == "password":
-                        raise Refused(422, "password", e.detail) from e
                     raise Refused(502, e.kind, e.detail) from e
-                return done(201, {"ok": True, "address": addr})
+                if not kc:
+                    return add_mailbox(body.password, "mailcow")
+                return with_identity(local, addr, name, body.password, add_mailbox)
         except Refused as e:
             if key:
                 db.idem_abandon(caller.name, key)
@@ -266,6 +319,50 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
         except Exception:
             if key:
                 db.idem_abandon(caller.name, key)
+            raise
+
+    def with_identity(local: str, addr: str, name: str, password: str, add_mailbox):
+        """Keycloak user first, then the mailbox (PR 12). The user's password goes
+        to Keycloak only; the mailbox gets a random one nobody knows."""
+        assert kc is not None
+        try:
+            existing = kc.find_user(local)
+            linked = db.link_get(addr, kc.name)
+            if existing and existing != linked:
+                # Someone else's identity (or one made outside this flow): never adopt it.
+                raise Refused(409, "taken", f"{addr} (identity exists)")
+            created_now = existing is None
+            attrs = {"mailcow_template": s.mailbox_template} if s.mailbox_template else None
+            uid = existing
+            if not uid:
+                try:
+                    uid = kc.create_user(username=local, email=addr, password=password, name=name,
+                                         group=s.keycloak_group, attributes=attrs)
+                except KeycloakError as e:
+                    # A lost reply: we checked there was no such user a moment
+                    # ago under the creation lock, so one there now is ours.
+                    if e.kind != "unavailable" or not (uid := kc.find_user(local)):
+                        raise
+        except KeycloakError as e:
+            log.warning("identity for %s failed: %s", addr, e)
+            if e.kind == "taken":
+                raise Refused(409, "taken", e.detail) from e
+            if e.kind == "password":
+                raise Refused(422, "password", e.detail) from e
+            raise Refused(502, e.kind, e.detail) from e
+        # Recorded before the mailbox call, so a retry after a lost reply
+        # recognises this identity as ours and carries on.
+        db.link_set(addr, kc.name, uid)
+        try:
+            return add_mailbox(secrets.token_urlsafe(36), "keycloak")
+        except Refused as e:
+            if e.status < 500 and created_now:
+                # mailcow definitively refused: undo, so nothing is half-made.
+                try:
+                    kc.delete_user(uid)
+                    db.link_delete(addr, kc.name)
+                except KeycloakError as ke:
+                    log.error("could not remove Keycloak user for %s after refusal: %s", addr, ke)
             raise
 
     # Every route must name its operation, or authorize() can't check it.

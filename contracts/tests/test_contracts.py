@@ -233,6 +233,50 @@ def test_broker_responses_match_contract(spec, broker):
     _check(spec, "upstreamCheck", client.get("/v1/upstream", headers=MONITORING))
 
 
+def _broker_with_keycloak():
+    _, config, mailcow, main, store, fake_mailcow = _broker_modules()
+    import fake_keycloak
+    from broker import keycloak
+    from fastapi.testclient import TestClient
+
+    settings = config.load_settings({
+        "MAILCOW_API_URL": "https://mail.example.com", "MAILCOW_API_KEY": fake_mailcow.API_KEY,
+        "MAIL_DOMAIN": "example.com", "SIGNUP_TOKEN": "s" * 40, "SIGNUP_CLIENTS": "*",
+        "MONITORING_TOKEN": "m" * 40, "MONITORING_CLIENTS": "*", "MAX_CREATES_PER_DAY": "1",
+        "IDENTITY_PROVIDER": "keycloak", "KEYCLOAK_CLIENT_SECRET": fake_keycloak.CLIENT_SECRET,
+    })
+    mc = mailcow.MailcowClient(settings.mailcow_api_url, settings.mailcow_api_key,
+                               transport=fake_mailcow.FakeMailcow().transport())
+    kc = keycloak.KeycloakClient(settings.keycloak_url, settings.keycloak_realm, settings.keycloak_client_id,
+                                 settings.keycloak_client_secret, transport=fake_keycloak.FakeKeycloak().transport())
+    db = store.Store(":memory:")
+    return TestClient(main.create_app(settings, mailcow=mc, store=db, keycloak=kc)), db
+
+
+ACCOUNT = {"local_part": "carol", "password": "Sunny-River-42x-long", "name": "C", "quota_mb": 1024,
+           "invitation": "inv-1"}
+
+
+@pytest.mark.parametrize("with_keycloak", [False, True])
+def test_create_account_responses_match_contract(spec, broker, audit_schema, with_keycloak):
+    client, db = _broker_with_keycloak() if with_keycloak else broker[1:]
+    key = {"Idempotency-Key": "k" * 20}
+    _check(spec, "createAccount", client.post("/v1/accounts", json=ACCOUNT, headers={**SIGNUP, **key}))  # 201
+    _check(spec, "createAccount", client.post("/v1/accounts", json=ACCOUNT, headers={**SIGNUP, **key}))  # replay
+    _check(spec, "createAccount", client.post("/v1/accounts", json=ACCOUNT, headers=SIGNUP))  # 422 no key
+    _check(spec, "createAccount", client.post("/v1/accounts", json={**ACCOUNT, "local_part": "dave"},
+                                              headers={**SIGNUP, "Idempotency-Key": "j" * 20}))  # 429 cap
+    _check(spec, "createAccount", client.post("/v1/accounts", json=ACCOUNT, headers=MONITORING))  # 403
+    if with_keycloak:
+        _check(spec, "createMailbox", client.post("/v1/mailboxes", json={k: v for k, v in ACCOUNT.items()
+                                                                          if k != "invitation"}, headers=SIGNUP))  # 409
+        _check(spec, "health", client.get("/v1/health", headers=MONITORING))
+    events = db.events()
+    assert "account.create" in {e["action"] for e in events}
+    for e in events:
+        jsonschema.validate(e, audit_schema, format_checker=jsonschema.FormatChecker())
+
+
 # --- PR 9: capabilities are enforced as written ------------------------------
 
 def test_enforced_rows_match_the_brokers_copy(spec, caps):
