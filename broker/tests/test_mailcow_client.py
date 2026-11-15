@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from app.mailcow import MailcowClient, MailcowError
+from broker.mailcow import MailcowClient, MailcowError
 
 
 def test_internal_hostname_sets_host_header_and_sni():

@@ -130,11 +130,12 @@ sudo MAILCOW_HOSTNAME=mail.avedeus.ovh MAILCOW_TZ=Europe/London ./generate_confi
 sudo /opt/MailServer/scripts/harden-mailcow-conf.sh
 ```
 
-Then set the API key that the invite site will use (mailcow reads it at start):
+Then set the API key that the provisioning broker will use (mailcow reads it at start).
+Only the broker container, at `172.30.240.11`, may use it:
 
 ```sh
 KEY=$(openssl rand -hex 32); echo "Save this API key: $KEY"
-sudo sed -i "s|^#\?API_KEY=.*|API_KEY=$KEY|; s|^#\?API_ALLOW_FROM=.*|API_ALLOW_FROM=172.30.240.10|" mailcow.conf
+sudo sed -i "s|^#\?API_KEY=.*|API_KEY=$KEY|; s|^#\?API_ALLOW_FROM=.*|API_ALLOW_FROM=172.30.240.11|" mailcow.conf
 grep -E '^(MAILCOW_HOSTNAME|API_ALLOW_FROM|IMAP_PORT|POP_PORT|POPS_PORT|ENABLE_IPV6|SKIP_CLAMD)=' mailcow.conf
 ```
 
@@ -158,7 +159,7 @@ At `https://mail.avedeus.ovh/admin` (user `admin`, password `moohoo`):
 3. *System → Configuration → Options → Password policy*: length 12, require
    lowercase, uppercase and numbers.
 4. *System → Configuration → Access → API*: confirm the read-write key shows
-   `172.30.240.10` only, and the read-only key is off.
+   `172.30.240.11` only (the broker), and the read-only key is off.
 
 **Check B:** `sudo /opt/MailServer/scripts/health-check.sh` ends with `HEALTHY`
 (the registration line fails until Part D and the backup lines until Part E;
@@ -223,15 +224,20 @@ and set it on the avedeus.ovh domain. Add the relay's `include:` to SPF.
 
 ```sh
 cd /opt/MailServer/infrastructure/registration
-sudo cp .env.example .env && sudo chmod 600 .env
+sudo cp .env.example .env && sudo cp broker.env.example broker.env && sudo chmod 600 .env broker.env
+openssl rand -hex 32                                                        # BROKER_TOKEN: same value in both files
 sudo docker compose build
 sudo docker compose run --rm registration python -m app.cli hash-password   # paste result as ADMIN_PASSWORD_HASH='…'
 sudo docker compose run --rm registration python -m app.cli new-totp       # ADMIN_TOTP_SECRET; scan the otpauth URI
 openssl rand -base64 48                                                     # SESSION_SECRET
-sudo nano .env
+sudo nano broker.env .env
 ```
 
-In `.env`: `MAILCOW_API_KEY` = the key from B3; `ADMIN_USERNAME` = a name of
+In `broker.env`: `MAILCOW_API_KEY` = the key from B3, and `BROKER_TOKEN`.
+This is the only place the key goes; the registration app refuses to start
+if it finds `MAILCOW_API_KEY` in its own `.env`.
+
+In `.env`: the same `BROKER_TOKEN`; `ADMIN_USERNAME` = a name of
 your choice; wrap the password hash in single quotes;
 `ADMIN_ALLOWED_IPS=<your home IP or VPN range>` so the admin page is invisible
 to everyone else (it returns 404). The app refuses to start without it unless

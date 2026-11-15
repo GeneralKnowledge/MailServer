@@ -139,3 +139,31 @@ def test_admin_ips_required_unless_explicitly_open(env):
     assert load_settings({**env, "ADMIN_ALLOWED_IPS": "203.0.113.7, 10.8.0.0/24"}).admin_allowed_ips
     with pytest.raises(RuntimeError, match="not a valid"):
         load_settings({**env, "ADMIN_ALLOWED_IPS": "my-home"})
+
+
+# ---- H2: the app holds no mailcow key -----------------------------------------
+
+def test_app_refuses_a_mailcow_key(env):
+    with pytest.raises(RuntimeError, match="MAILCOW_API_KEY"):
+        load_settings({**env, "MAILCOW_API_KEY": "leftover"})
+    with pytest.raises(RuntimeError, match="BROKER_TOKEN"):
+        load_settings({**env, "BROKER_TOKEN": ""})
+    assert not any("mailcow_api" in f for f in load_settings(env).__dataclass_fields__)
+
+
+def test_broker_daily_limit_surfaces_as_failure(ctx):
+    from conftest import make_broker_client
+    from fake_mailcow import FakeMailcow
+    from app.main import create_app
+    from app.security import RateLimiter
+    from fastapi.testclient import TestClient
+    broker = make_broker_client(FakeMailcow(), broker_env={"MAX_CREATES_PER_DAY": "1"})
+    ctx.client = TestClient(create_app(ctx.settings, broker=broker, db=ctx.db,
+                                       limiter=RateLimiter(clock=ctx.clock), clock=ctx.clock),
+                            base_url="https://mail.example.com")
+    t1, _ = new_invite(ctx)
+    t2, inv2 = new_invite(ctx)
+    assert register(ctx, t1, username="alice").status_code == 200
+    r = register(ctx, t2, username="bobby")
+    assert r.status_code == 503 and ctx.invites.get(inv2.id).status == "valid"
+    assert "limit" in ctx.db.one("SELECT detail FROM events WHERE kind='provision_failed'")["detail"]

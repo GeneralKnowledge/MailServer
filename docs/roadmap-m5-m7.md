@@ -64,8 +64,10 @@ amber / red) using thresholds below, then the panels.
 
 ### Security notes
 
-- Second mailcow API key: **read-only**, allow-listed to 172.22.1.240. The
-  dashboard never uses the read-write key.
+- Second mailcow API key: **read-only**. Since the 2026-11-15 audit fixes, no
+  upstream key may live in the public app, so this key belongs to the broker
+  (or a separate internal collector), which hands the dashboard only the
+  figures it needs. The dashboard never uses the read-write key.
 - The page sits behind the existing admin login (password + TOTP,
   `ADMIN_ALLOWED_IPS`). Nothing new is exposed.
 - `status.json` contains no secrets; mounted read-only.
@@ -129,6 +131,8 @@ touch mailcow settings.
 ### Build order
 
 1. 6.1 broker + 6.2 switch-over (security gain, no visible change).
+   **Built 2026-11-15** (audit fix 7, `broker/`) with check and create only;
+   tested against the fake API, real-API check still needs the rehearsal.
 2. 6.5 history, then 6.3 accounts page with suspend/reactivate/quota/reset.
 3. 6.4 soft delete.
 4. 6.7 recovery email, 6.6 invitation improvements.

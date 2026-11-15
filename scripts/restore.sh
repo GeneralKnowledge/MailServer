@@ -50,6 +50,9 @@ case "${1:-}" in
     src="$RESTORE_DIR/${2:?backup folder name}/extras"
     [ -f "$src/registration.sqlite3" ] || { echo "no registration.sqlite3 in $src"; exit 1; }
     [ -f "$REPO_DIR/infrastructure/registration/.env" ] || cp "$src/registration.env" "$REPO_DIR/infrastructure/registration/.env"
+    if [ ! -f "$REPO_DIR/infrastructure/registration/broker.env" ] && [ -f "$src/broker.env" ]; then
+      cp "$src/broker.env" "$REPO_DIR/infrastructure/registration/broker.env"
+    fi
     $COMPOSE stop registration
     # Keep the current database next to the restore, in case it was the newer one.
     keep="$RESTORE_DIR/registration-before-restore-$(date -u +%Y%m%dT%H%M%SZ).sqlite3"

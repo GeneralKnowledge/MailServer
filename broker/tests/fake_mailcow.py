@@ -35,6 +35,8 @@ class FakeMailcow:
             addr = path.rsplit("/", 1)[1].lower()
             mb = self.mailboxes.get(addr)
             return httpx.Response(200, json=mb or {})
+        if request.method == "GET" and path == "/api/v1/get/status/version":
+            return httpx.Response(200, json={"version": "2026-11"})
         if request.method == "GET" and path == "/api/v1/get/alias/all":
             return httpx.Response(200, json=[{"id": n, "address": a, "goto": "x@y"} for n, a in enumerate(self.aliases)])
         if request.method == "POST" and path == "/api/v1/add/mailbox":

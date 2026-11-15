@@ -1,7 +1,7 @@
 """Minimal client for the mailcow REST API (/api/v1).
 
-Only three calls are used: look up a mailbox, list aliases, add a mailbox.
-The API key stays on the server; it is never sent to browsers.
+Used only by the provisioning broker, the one component that holds the key.
+Calls: version check, look up a mailbox, list aliases, add a mailbox.
 """
 
 from __future__ import annotations
@@ -66,6 +66,13 @@ class MailcowClient:
             raise MailcowError("unavailable", f"non-JSON response: {r.text[:300]}") from e
 
     # ---- reads -----------------------------------------------------------
+
+    def version(self) -> str:
+        """Cheap authenticated call, used to check the key and allow-list work."""
+        data = self._request("GET", "/api/v1/get/status/version")
+        if isinstance(data, dict) and data.get("version"):
+            return str(data["version"])
+        raise MailcowError("unavailable", f"unexpected response: {str(data)[:300]}")
 
     def mailbox_exists(self, address: str) -> bool:
         data = self._request("GET", f"/api/v1/get/mailbox/{quote(address, safe='@')}")

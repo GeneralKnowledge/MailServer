@@ -58,6 +58,11 @@ echo "== Registration app"
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "https://$HOST$BASE_PATH/healthz")
 if [ "$code" = 200 ]; then ok "registration /healthz"; else bad registration "registration /healthz returned $code"; fi
 
+echo "== Provisioning broker -> mailcow API"
+if out=$(docker compose -f "$REPO_DIR/infrastructure/registration/docker-compose.yml" exec -T broker \
+           python -m broker.selfcheck 2>&1); then ok "$out"
+else bad broker-api "broker can't use the mailcow API: $(echo "$out" | tail -n 1)"; fi
+
 echo "== Mail queue"
 q=$(docker compose exec -T postfix-mailcow postqueue -j 2>/dev/null | wc -l)
 if [ "$q" -lt 50 ]; then ok "$q messages queued"; else bad queue "$q messages queued (check delivery)"; fi

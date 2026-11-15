@@ -27,7 +27,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from .config import Settings, load_settings
 from .db import Database
 from .invites import Invitations
-from .mailcow import MailcowClient, MailcowError
+from .provisioning import BrokerClient, ProvisioningError
 from .security import (RateLimiter, csrf_ok, csrf_token, ip_allowed, parse_networks, totp_step,
                        verify_password)
 from .validation import normalise_username, password_error, username_error
@@ -54,13 +54,13 @@ def _fmt_ts(ts: int | None) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
-def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | None = None,
+def create_app(settings: Settings | None = None, *, broker: BrokerClient | None = None,
                db: Database | None = None, limiter: RateLimiter | None = None,
                clock=time.time) -> FastAPI:
     s = settings or load_settings()
     db = db or Database(s.database_path, clock=clock)
     invites = Invitations(db)
-    mc = mailcow or MailcowClient(s.mailcow_api_url, s.mailcow_api_key, s.mailcow_tls_hostname, s.mailcow_verify_tls)
+    mc = broker or BrokerClient(s.broker_url, s.broker_token)
     rl = limiter or RateLimiter()
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     templates.env.filters["ts"] = _fmt_ts
@@ -160,8 +160,8 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
         if err:
             return {"ok": False, "message": err}
         try:
-            taken = mc.address_taken(f"{name}@{s.mail_domain}")
-        except MailcowError:
+            taken = mc.address_taken(name)
+        except ProvisioningError:
             return JSONResponse({"ok": False, "message": "Can't check right now."}, 503)
         return {"ok": not taken, "message": "That address is taken." if taken else f"{name}@{s.mail_domain} is available."}
 
@@ -196,25 +196,23 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
 
         address = f"{name}@{s.mail_domain}"
         try:
-            if mc.address_taken(address):
-                invites.release(inv.id, cid)
-                return show_form(request, token, 409, error="That address is taken. Choose another username.", form=form)
-            mc.add_mailbox(local_part=name, domain=s.mail_domain, password=password,
-                           quota_mb=inv.quota_mb, name=display_name)
-        except MailcowError as e:
+            # The broker checks the address is free, creates the mailbox, and
+            # confirms it itself if mailcow's reply is lost.
+            mc.create_mailbox(local_part=name, password=password, quota_mb=inv.quota_mb, name=display_name)
+        except ProvisioningError as e:
             if e.kind == "unavailable":
-                # The mailbox may have been created even though the reply was lost.
+                # Our call to the broker failed; the mailbox may still have been created.
                 try:
-                    created = mc.mailbox_exists(address)
-                except MailcowError:
+                    created = mc.mailbox_exists(name)
+                except ProvisioningError:
                     created = False
                 if created:
                     return finish(request, inv.id, cid, address, client, f"confirmed after error: {e.detail}")
             invites.release(inv.id, cid)
-            db.log("provision_failed", invitation_id=inv.id, address=address, detail=f"{e.kind}: {e.detail}", ip=client)
-            log.warning("provisioning failed for %s: %s", address, e)
             if e.kind == "taken":
                 return show_form(request, token, 409, error="That address is taken. Choose another username.", form=form)
+            db.log("provision_failed", invitation_id=inv.id, address=address, detail=f"{e.kind}: {e.detail}", ip=client)
+            log.warning("provisioning failed for %s: %s", address, e)
             if e.kind == "password":
                 return show_form(request, token, 400, form=form,
                                  error="The mail server rejected that password. Try a longer one with mixed characters.")

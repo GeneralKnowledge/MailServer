@@ -34,11 +34,9 @@ def _int(src, name: str, default: int) -> int:
 
 @dataclass(frozen=True)
 class Settings:
-    # mailcow API
-    mailcow_api_url: str
-    mailcow_api_key: str
-    mailcow_tls_hostname: str | None  # SNI/Host override when calling nginx-mailcow internally
-    mailcow_verify_tls: bool
+    # provisioning broker (the app never holds the mailcow API key)
+    broker_url: str
+    broker_token: str
     mail_domain: str
     webmail_url: str
     public_url: str  # where this app is reached, e.g. https://mail.example.com (base_path is appended)
@@ -103,6 +101,17 @@ def _admin_ips(src) -> str:
     return ips
 
 
+def _broker_token(src) -> str:
+    if src.get("MAILCOW_API_KEY", "").strip():
+        # Guard against an old .env: the key belongs in broker.env only.
+        raise RuntimeError("MAILCOW_API_KEY must not be set for the registration app; "
+                           "it belongs in broker.env (the provisioning broker)")
+    token = src.get("BROKER_TOKEN", "").strip()
+    if len(token) < 32:
+        raise RuntimeError("BROKER_TOKEN must be set (at least 32 characters, same as in broker.env)")
+    return token
+
+
 def load_settings(env: dict[str, str] | None = None) -> Settings:
     src = env if env is not None else os.environ
 
@@ -125,10 +134,8 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         raise RuntimeError("SESSION_SECRET must be at least 32 characters")
 
     return Settings(
-        mailcow_api_url=req("MAILCOW_API_URL").rstrip("/"),
-        mailcow_api_key=req("MAILCOW_API_KEY"),
-        mailcow_tls_hostname=src.get("MAILCOW_TLS_HOSTNAME") or None,
-        mailcow_verify_tls=_bool(src, "MAILCOW_VERIFY_TLS", True),
+        broker_url=src.get("BROKER_URL", "http://broker:8100").rstrip("/"),
+        broker_token=_broker_token(src),
         mail_domain=domain,
         webmail_url=src.get("WEBMAIL_URL", f"https://mail.{domain}").rstrip("/"),
         public_url=src.get("PUBLIC_URL", src.get("WEBMAIL_URL", f"https://mail.{domain}")).rstrip("/"),

@@ -13,7 +13,7 @@
 | Rspamd, Postfix data | `backup_rspamd.tar.zst`, `backup_postfix.tar.zst` |
 | mailcow.conf | `mailcow.conf` |
 | Invitation database | `extras/registration.sqlite3` |
-| Registration `.env` (secrets) | `extras/registration.env` |
+| Registration `.env` and broker `broker.env` (secrets, incl. the mailcow API key) | `extras/registration.env`, `extras/broker.env` |
 | nginx custom site, SOGo branding, TLS certs | `extras/mailcow-custom.tgz` |
 | Checksums | `SHA256SUMS` |
 

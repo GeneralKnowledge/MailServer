@@ -105,6 +105,8 @@ if [ "$SKIP_REGISTRATION" != 1 ]; then
   fi
   cp -a "$REPO_DIR/infrastructure/registration/.env" "$latest/extras/registration.env" \
     || { echo "  FAILED copying infrastructure/registration/.env"; fail=1; }
+  cp -a "$REPO_DIR/infrastructure/registration/broker.env" "$latest/extras/broker.env" \
+    || { echo "  FAILED copying infrastructure/registration/broker.env"; fail=1; }
 fi
 # Our customisations inside mailcow (nginx site, SOGo theme/logos, login page
 # stylesheet, compose override) and mailcow.conf. Optional files are only
@@ -123,7 +125,7 @@ for f in "$latest"/*.tar.zst; do
   if zstd -tq "$f"; then echo "  ok $(basename "$f") $(du -h "$f" | cut -f1)"; else echo "  CORRUPT $f"; fail=1; fi
 done
 need_files="backup_vmail.tar.zst backup_crypt.tar.zst backup_redis.tar.zst backup_mariadb.tar.zst mailcow.conf extras/mailcow-custom.tgz"
-[ "$SKIP_REGISTRATION" = 1 ] || need_files="$need_files extras/registration.sqlite3 extras/registration.env"
+[ "$SKIP_REGISTRATION" = 1 ] || need_files="$need_files extras/registration.sqlite3 extras/registration.env extras/broker.env"
 for need in $need_files; do
   [ -s "$latest/$need" ] || { echo "  MISSING $need"; fail=1; }
 done
