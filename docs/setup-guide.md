@@ -17,6 +17,28 @@ a later part assumes the earlier one works.
 Commands run on the server as the `ubuntu` user with `sudo`. Replace
 `<IP>` with the server's reserved public IP.
 
+## Server size: test vs production
+
+The first deployment is a **test with one user**. Any host works if it allows
+outbound port 25, lets you set reverse DNS (PTR), and runs Ubuntu 24.04
+(x86 or ARM). The Oracle-specific steps in Part A have equivalents on every
+host: a fixed IP, a firewall, and a PTR setting.
+
+| Profile | RAM | Disk | mailcow settings | Keycloak validation? |
+|---|---|---|---|---|
+| **Test, mailcow only** | 4 GB + 2 GB swap | 40 GB | `SKIP_CLAMD=y`, `SKIP_FTS=y`, `SOGO` defaults | No |
+| **Test incl. Keycloak gate** | 8 GB | 40 GB | `SKIP_CLAMD=y` (optional), `SKIP_FTS=y` | Yes |
+| Production (small group) | 8–12 GB | 100 GB | ClamAV and full-text search on | If it passed |
+
+For the 4 GB profile, after `generate_config.sh` in B3 also run:
+
+```sh
+sudo sed -i 's/^SKIP_CLAMD=.*/SKIP_CLAMD=y/; s/^SKIP_FTS=.*/SKIP_FTS=y/' mailcow.conf
+```
+
+Measure memory with `free -m` and `docker stats --no-stream` after Part D and
+record it; that number decides the production size.
+
 ---
 
 ## Part A — Decisions and requests (before the server)
