@@ -161,7 +161,8 @@ At `https://mail.avedeus.ovh/admin` (user `admin`, password `moohoo`):
    `172.22.1.240` only, and the read-only key is off.
 
 **Check B:** `sudo /opt/MailServer/scripts/health-check.sh` ends with `HEALTHY`
-(the registration line fails until Part D; ignore it). The padlock on
+(the registration line fails until Part D and the backup lines until Part E;
+ignore those). The padlock on
 `https://mail.avedeus.ovh` shows a Let's Encrypt certificate.
 
 ---
@@ -256,7 +257,7 @@ Then:
 5. Revoke an unused invitation and try it: must say withdrawn.
 6. The real-API checks in [registration/README.md](../registration/README.md#real-api-check-m3-on-the-server).
 
-**Check D:** health check `HEALTHY` including the registration line; the
+**Check D:** health check `HEALTHY` apart from the backup lines; the
 Avedeus logo and plum colours on the login page and in webmail, light and dark.
 
 ---
@@ -276,11 +277,31 @@ Avedeus logo and plum colours on the login page and in webmail, light and dark.
    echo '*/15 * * * * root /opt/MailServer/scripts/health-check.sh >/var/log/mail-health.log 2>&1' | sudo tee /etc/cron.d/mail-health
    sudo /opt/MailServer/scripts/backup.sh
    ```
-4. **Restore test** (required before calling it done): follow
+4. **Alerts.** Install the [ntfy](https://ntfy.sh) app on your phone and
+   subscribe to a long random topic name. At [healthchecks.io](https://healthchecks.io)
+   (free) create two checks: *backup* (period 1 day, grace 2 h) and *health*
+   (period 15 min, grace 30 min), each alerting to your personal email. Then:
+   ```sh
+   sudo tee /etc/mailserver/alerts.env >/dev/null <<'CONF'
+   NTFY_URL=https://ntfy.sh/<your-long-random-topic>
+   ALERT_EMAIL=<your personal address, not @avedeus.ovh>
+   HC_BACKUP_URL=https://hc-ping.com/<backup check uuid>
+   HC_HEALTH_URL=https://hc-ping.com/<health check uuid>
+   CONF
+   sudo chmod 600 /etc/mailserver/alerts.env
+   sudo /opt/MailServer/scripts/health-check.sh   # sends one alert now if anything is wrong
+   ```
+   The health check alerts once when a problem appears and once when it
+   clears. healthchecks.io emails you if a backup or health run fails or
+   simply doesn't happen (server down, cron broken). None of the alerts go
+   through this mail server.
+5. **Restore test** (required before calling it done): follow
    [backup-and-recovery.md](backup-and-recovery.md#restore-same-or-new-server),
    ideally onto a second temporary VM, and record the result in its table.
 
-**Check E:** a dated folder appears on the remote; the restore test row is filled in.
+**Check E:** a dated folder appears on the remote; both healthchecks.io
+checks are green; `docker stop sogo-mailcow` → one push alert within 15
+minutes, `docker start` → one "all clear"; the restore test row is filled in.
 
 ---
 

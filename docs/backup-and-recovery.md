@@ -35,6 +35,10 @@ to `/var/backups/mailserver/restore`, also root only.
   `mailcow-custom.tgz`), the SQLite copy must pass `integrity_check`, and the
   upload is checked with `rclone cryptcheck`. Failure → non-zero exit, nothing
   uploaded, logged in `/var/log/mail-backup.log`.
+- Alerts: a failed run sends a push alert (ntfy) and pings healthchecks.io's
+  `/fail`; a run that never happens is caught by healthchecks.io's schedule.
+  Each successful run writes `/var/backups/mailserver/last-success`, and
+  `health-check.sh` reports a problem when it is older than 26 hours.
 - If the registration container isn't running, the backup **fails** rather
   than quietly leaving out the invitations. On a server without the
   registration app, set `SKIP_REGISTRATION=1` in `backup.env`.

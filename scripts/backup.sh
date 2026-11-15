@@ -10,6 +10,9 @@
 #   SKIP_REGISTRATION=0                        # 1 = this server doesn't run the registration app
 #   LOCAL_KEEP_DAYS=3
 #   REMOTE_KEEP_DAYS=30
+# Alerts: /etc/mailserver/alerts.env (see scripts/lib/alerts.sh). A failed run
+# sends a push alert and pings HC_BACKUP_URL/fail; a missing run is caught by
+# healthchecks.io because the success ping doesn't arrive.
 # Cron (03:15 daily):
 #   15 3 * * * root /opt/MailServer/scripts/backup.sh >>/var/log/mail-backup.log 2>&1
 set -euo pipefail
@@ -26,6 +29,24 @@ ALLOW_PLAIN_REMOTE="${ALLOW_PLAIN_REMOTE:-0}"
 SKIP_REGISTRATION="${SKIP_REGISTRATION:-0}"
 REG_COMPOSE="$REPO_DIR/infrastructure/registration/docker-compose.yml"
 log() { echo "$(date -u +%FT%TZ) $*"; }
+# shellcheck source=lib/alerts.sh
+. "$REPO_DIR/scripts/lib/alerts.sh"
+HC_BACKUP_URL="${HC_BACKUP_URL:-}"
+
+# Keep a copy of this run's output for the failure alert.
+RUN_LOG="$(mktemp)"
+exec > >(tee -a "$RUN_LOG") 2>&1
+on_exit() {
+  local rc=$?
+  if [ "$rc" -ne 0 ]; then
+    sleep 1  # let tee catch up
+    hc_ping "$HC_BACKUP_URL" fail "$(tail -n 60 "$RUN_LOG")"
+    alert_send high "backup FAILED" "$(tail -n 15 "$RUN_LOG")"
+  fi
+  rm -f "$RUN_LOG"
+}
+trap on_exit EXIT
+hc_ping "$HC_BACKUP_URL" start
 
 # mailcow's generate_config.sh leaves DOCKER_COMPOSE_VERSION empty until the
 # first update.sh, and backup_and_restore.sh's restore refuses to run then.
@@ -126,4 +147,8 @@ if [ -n "$RCLONE_REMOTE" ]; then
 else
   log "WARNING: RCLONE_REMOTE not set; backup is only on this server"
 fi
+# Read by health-check.sh to alert on a stale backup.
+mkdir -p "$BACKUP_ROOT"
+echo "$(date -u +%s) $latest ${RCLONE_REMOTE:-local-only}" > "$BACKUP_ROOT/last-success"
 log "done: $latest"
+hc_ping "$HC_BACKUP_URL" success "$(tail -n 30 "$RUN_LOG")"
