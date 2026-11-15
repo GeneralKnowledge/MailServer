@@ -92,7 +92,7 @@ def test_served_under_auth_behind_the_proxy():
 
 def test_nginx_proxies_auth_and_closes_admin_by_default():
     assert "location /auth/ {" in NGINX
-    for loc in ("/auth/admin/", "/auth/admin/realms/avedeus/", "/auth/realms/master/"):
+    for loc in ("/auth/admin/", "/auth/admin/realms/avedeus/", "/auth/realms/master/", "/console/"):
         block = NGINX.split(f"location {loc} {{", 1)[1].split("\n}", 1)[0]
         active = [line.strip() for line in block.splitlines() if not line.strip().startswith("#")]
         assert "deny all;" in active, f"{loc} must fail closed"
@@ -157,6 +157,26 @@ def test_portal_client_is_browser_only_with_an_exact_redirect():
     assert p["standardFlowEnabled"] and not p["serviceAccountsEnabled"]
     assert p["attributes"]["pkce.code.challenge.method"] == "S256"
     assert "kc-admin-api" not in p["defaultClientScopes"]
+
+
+def test_admin_console_client_always_asks_for_password_and_one_time_code():
+    """PR 15 (ADR 0020): the console's own browser flow has no cookie shortcut
+    and no alternative: password, then OTP, both REQUIRED; its tokens carry
+    groups and amr, which the control plane checks."""
+    a = next(c for c in REALM["clients"] if c["clientId"] == "avedeus-admin")
+    assert a["redirectUris"] == ["https://${MAIL_HOSTNAME}/console/callback"]
+    assert a["standardFlowEnabled"] and not a["serviceAccountsEnabled"] and not a["fullScopeAllowed"]
+    assert a["attributes"]["pkce.code.challenge.method"] == "S256"
+    flow = next(f for f in REALM["authenticationFlows"] if f["id"] == a["authenticationFlowBindingOverrides"]["browser"])
+    steps = [(e["authenticator"], e["requirement"]) for e in flow["authenticationExecutions"]]
+    assert steps == [("auth-username-password-form", "REQUIRED"), ("auth-otp-form", "REQUIRED")]
+    configs = {c["alias"]: c["config"]["default.reference.value"] for c in REALM["authenticatorConfig"]}
+    assert [configs[e["authenticatorConfig"]] for e in flow["authenticationExecutions"]] == ["pwd", "otp"]
+    mappers = {m["protocolMapper"]: m["config"] for m in a["protocolMappers"]}
+    for kind in ("oidc-group-membership-mapper", "oidc-amr-mapper"):
+        assert mappers[kind]["access.token.claim"] == "true" and mappers[kind]["id.token.claim"] == "true"
+    # Only the console's client uses this flow; everyone else keeps the realm's default.
+    assert [c["clientId"] for c in REALM["clients"] if c.get("authenticationFlowBindingOverrides")] == ["avedeus-admin"]
 
 
 def test_no_secrets_committed():

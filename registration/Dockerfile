@@ -1,4 +1,4 @@
-# Invite registration app. Builds for arm64 and amd64 (pure-Python deps + argon2 wheels).
+# Invite registration app. Builds for arm64 and amd64 (pure-Python deps).
 FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1

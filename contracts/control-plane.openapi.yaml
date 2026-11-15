@@ -257,7 +257,9 @@ paths:
       x-avedeus-status: implemented
       x-avedeus-pr: 34
       x-avedeus-audit: message.trace
+      security: [{callerToken: [], userToken: []}]
       parameters:
+        - {name: X-User-Token, in: header, required: false, schema: {type: string, maxLength: 8192}}
         - {name: address, in: query, required: false, schema: {type: string, maxLength: 254}}
         - {name: message_id, in: query, required: false, schema: {type: string, maxLength: 998}}
         - {name: hours, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 720, default: 24}}
@@ -339,12 +341,46 @@ paths:
     get:
       operationId: listAccounts
       tags: [lifecycle]
-      summary: Accounts with mailbox state, quota and use, created time.
-      x-avedeus-status: planned
+      summary: Accounts with mailbox state, quota and use, created time (read-only).
+      description: |
+        PR 15. mailcow's mailboxes on the mail domain (read with the
+        read-only key when one is set), with whether each is linked to a
+        Keycloak identity. Changes nothing and is not audited. Admin calls
+        carry the admin's verified Keycloak token (ADR 0020).
+      x-avedeus-status: implemented
       x-avedeus-pr: 15
+      security: [{callerToken: [], userToken: []}]
+      parameters:
+        - {name: X-User-Token, in: header, required: false, schema: {type: string, maxLength: 8192}}
       responses:
-        "200": {description: Account list.}
-        default: {$ref: "#/components/responses/Error"}
+        "200":
+          description: Account list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, identity_provider, accounts]
+                additionalProperties: false
+                properties:
+                  ok: {const: true}
+                  identity_provider: {enum: [none, keycloak]}
+                  accounts:
+                    type: array
+                    items:
+                      type: object
+                      required: [address, name, quota_mb, used_mb, active, created, identity_linked]
+                      additionalProperties: false
+                      properties:
+                        address: {type: string, format: email}
+                        name: {type: string, maxLength: 100}
+                        quota_mb: {type: integer}
+                        used_mb: {type: integer}
+                        active: {type: boolean}
+                        created: {type: string, maxLength: 32}
+                        identity_linked: {type: boolean}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
 
   /v1/accounts/{account}:
     parameters: [{$ref: "#/components/parameters/Account"}]
@@ -353,7 +389,7 @@ paths:
       tags: [lifecycle]
       summary: One account with its history.
       x-avedeus-status: planned
-      x-avedeus-pr: 15
+      x-avedeus-pr: 16
       responses:
         "200": {description: Account.}
         default: {$ref: "#/components/responses/Error"}
@@ -532,13 +568,35 @@ paths:
     get:
       operationId: readAudit
       tags: [audit]
-      summary: Audit events, newest first, filterable by account, action and time.
-      x-avedeus-status: planned
-      x-avedeus-pr: 28
+      summary: Audit events, newest first, filterable by action and outcome (read-only).
+      description: |
+        PR 15 (pulled forward from PR 28 in its smallest form, for the admin
+        console): the newest events, optionally only those whose action is
+        or starts with `action` (e.g. `account`) and with one outcome. PR 28
+        adds filters by account and time. Not audited itself.
+      x-avedeus-status: implemented
+      x-avedeus-pr: 15
+      security: [{callerToken: [], userToken: []}]
+      parameters:
+        - {name: X-User-Token, in: header, required: false, schema: {type: string, maxLength: 8192}}
+        - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 500, default: 100}}
+        - {name: action, in: query, required: false, schema: {type: string, maxLength: 64}}
+        - {name: outcome, in: query, required: false, schema: {enum: [ok, refused, failed]}}
       responses:
         "200":
           description: Events in the shape of audit-event.schema.json.
-        default: {$ref: "#/components/responses/Error"}
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, events]
+                additionalProperties: false
+                properties:
+                  ok: {const: true}
+                  events: {type: array, items: {type: object}}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
 
 components:
   securitySchemes:

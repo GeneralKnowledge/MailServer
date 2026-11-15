@@ -1,10 +1,11 @@
 # 0010. No public mailbox lifecycle; admin console in its own container
 
 - Status: Accepted (2026-11-15). Locked constraint 2; plan decision E6.
-- Implemented: Partly. No lifecycle operation exists anywhere yet (the broker
-  offers only check and create). The invite admin pages still live in the
-  registration app, behind TOTP and `ADMIN_ALLOWED_IPS`, until PR 15.
-  Proven on Oracle: No
+- Implemented: Yes in code (PR 15). No lifecycle operation exists anywhere
+  yet. The admin pages left the sign-up app for the admin console container
+  at **`/console/`** (not `/admin`, which mailcow's own admin login already
+  uses; see [0020](0020-admin-console-and-invitations.md)), with the Keycloak
+  admin group, a one-time code and an IP allow-list. Proven on Oracle: No
 
 ## Context
 

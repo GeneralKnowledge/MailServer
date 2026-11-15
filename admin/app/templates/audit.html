@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Audit log · {{ brand }}{% endblock %}
+{% block content %}
+<h1>Audit log</h1>
+<p class="muted">The control plane's append-only log, newest first. Invitation changes are in the sign-up
+app's own log (see Invitations); sign-ins are in <a href="{{ links.keycloak_events }}">Keycloak's events</a>.</p>
+<form method="get" action="{{ base }}/audit" class="inline">
+  <label>Action starts with<input name="action" value="{{ form.action }}" maxlength="64" placeholder="account"></label>
+  <label>Outcome<input name="outcome" value="{{ form.outcome }}" maxlength="10" placeholder="ok, refused or failed"></label>
+  <button type="submit">Filter</button>
+</form>
+{% if data and data.events is defined %}
+<div class="scroll"><table class="list">
+  <thead><tr><th>When</th><th>Action</th><th>Outcome</th><th>Caller</th><th>Who</th><th>Subject</th><th>Error</th></tr></thead>
+  <tbody>{% for e in data.events %}
+  <tr class="o-{{ e.outcome }}"><td>{{ e.time | ts }}</td><td>{{ e.action }}</td><td>{{ e.outcome }}</td><td>{{ e.caller }}</td>
+      <td>{% if e.actor %}{{ e.actor.kind }}: <code>{{ e.actor.id }}</code>{% endif %}</td>
+      <td>{{ e.subject.address if e.subject else "" }}</td><td>{{ e.error_kind or "" }}</td></tr>
+  {% else %}<tr><td colspan="7" class="muted">No events.</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endif %}
+{% endblock %}

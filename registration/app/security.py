@@ -1,20 +1,12 @@
-"""Rate limiting, admin credentials (argon2 + TOTP) and CSRF tokens."""
+"""Rate limiting, CSRF tokens and IP allow-lists. (The admin login moved to the admin console in PR 15.)"""
 
 from __future__ import annotations
 
-import base64
-import hashlib
 import hmac
 import secrets
-import struct
 import threading
 import time
 from collections import defaultdict, deque
-
-from argon2 import PasswordHasher
-from argon2.exceptions import InvalidHashError, VerificationError
-
-_ph = PasswordHasher()
 
 
 # ---- rate limiting --------------------------------------------------------
@@ -46,59 +38,6 @@ class RateLimiter:
     def reset(self) -> None:
         with self._lock:
             self._hits.clear()
-
-
-# ---- admin password -------------------------------------------------------
-
-def hash_password(password: str) -> str:
-    return _ph.hash(password)
-
-
-def verify_password(stored_hash: str, password: str) -> bool:
-    try:
-        return _ph.verify(stored_hash, password)
-    except (VerificationError, InvalidHashError):
-        return False
-
-
-# ---- TOTP (RFC 6238, SHA1, 6 digits, 30 s) --------------------------------
-
-def new_totp_secret() -> str:
-    return base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
-
-
-def _hotp(secret_b32: str, counter: int) -> str:
-    key = base64.b32decode(secret_b32.upper() + "=" * (-len(secret_b32) % 8))
-    digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
-    off = digest[-1] & 0x0F
-    code = (struct.unpack(">I", digest[off:off + 4])[0] & 0x7FFFFFFF) % 1_000_000
-    return f"{code:06d}"
-
-
-def totp_now(secret_b32: str, at: float | None = None) -> str:
-    return _hotp(secret_b32, int((at if at is not None else time.time()) // 30))
-
-
-def totp_step(secret_b32: str, code: str, at: float | None = None, window: int = 1) -> int | None:
-    """Return the matching 30-second step number, or None. Callers reject a
-    step that is not newer than the last accepted one (replay protection)."""
-    code = (code or "").strip().replace(" ", "")
-    if len(code) != 6 or not code.isdigit():
-        return None
-    t = int((at if at is not None else time.time()) // 30)
-    for d in range(-window, window + 1):
-        if hmac.compare_digest(_hotp(secret_b32, t + d), code):
-            return t + d
-    return None
-
-
-def verify_totp(secret_b32: str, code: str, at: float | None = None, window: int = 1) -> bool:
-    return totp_step(secret_b32, code, at, window) is not None
-
-
-def totp_uri(secret_b32: str, account: str, issuer: str = "Mail invitations") -> str:
-    from urllib.parse import quote
-    return f"otpauth://totp/{quote(issuer)}:{quote(account)}?secret={secret_b32}&issuer={quote(issuer)}"
 
 
 # ---- CSRF -----------------------------------------------------------------

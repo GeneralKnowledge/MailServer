@@ -101,3 +101,24 @@ location /account/ {
     proxy_read_timeout 60s;
     client_max_body_size 64k;
 }
+
+# PR 15: the admin console at /console/ (mailcow's own admin login keeps
+# /admin). Closed to everyone except the addresses listed here, like the
+# Keycloak admin console above; the console checks ADMIN_ALLOWED_IPS again,
+# and Keycloak asks for password and one-time code at every console sign-in.
+location = /console {
+    return 301 /console/;
+}
+
+location /console/ {
+    # allow 203.0.113.7;
+    deny all;
+    resolver 127.0.0.11 valid=30s ipv6=off;
+    set $console_upstream http://admin-console:8000;
+    proxy_pass $console_upstream;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_read_timeout 90s;          # a message trace can take a while
+    client_max_body_size 64k;
+}

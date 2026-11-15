@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% block title %}Admin · {{ brand }}{% endblock %}</title>
+  <link rel="icon" href="{{ base }}/static/favicon.svg" type="image/svg+xml">
+  <script src="{{ base }}/static/theme.js"></script>
+  <link rel="stylesheet" href="{{ base }}/static/brand.css">
+  <link rel="stylesheet" href="{{ base }}/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <a href="{{ base }}/" class="brand"><img src="{{ base }}/static/logo.svg" alt="" height="32"><span>{{ brand }} admin</span></a>
+    <button type="button" id="theme-toggle" class="theme-toggle" hidden>Theme</button>
+  </header>
+  <main class="card{% if user %} wide{% endif %}">
+    {% if user %}
+    <nav class="row gap tabs">
+      <a href="{{ base }}/"{% if tab == "invitations" %} aria-current="page"{% endif %}>Invitations</a>
+      <a href="{{ base }}/accounts"{% if tab == "accounts" %} aria-current="page"{% endif %}>Accounts</a>
+      <a href="{{ base }}/trace"{% if tab == "trace" %} aria-current="page"{% endif %}>Message trace</a>
+      <a href="{{ base }}/audit"{% if tab == "audit" %} aria-current="page"{% endif %}>Audit log</a>
+      <span class="muted">{{ user.name }}</span>
+      <form method="post" action="{{ base }}/logout"><input type="hidden" name="csrf" value="{{ user.csrf }}"><button class="link">Sign out</button></form>
+    </nav>
+    {% endif %}
+    {% if error %}<p class="error">{{ error }}</p>{% endif %}
+    {% if flash %}<p class="notice">{{ flash }}</p>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="foot">
+    <a href="{{ links.mailcow_admin }}">mailcow admin</a> · <a href="{{ links.keycloak_users }}">Keycloak users</a>
+    · <a href="{{ links.keycloak_events }}">Sign-in events</a>
+  </footer>
+</body>
+</html>

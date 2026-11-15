@@ -40,7 +40,7 @@ Four rules shape every decision:
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────┐
-│ 5  EXPERIENCE            /join (sign-up)   /account (portal)   /admin     │
+│ 5  EXPERIENCE            /join (sign-up)   /account (portal)   /console   │
 │                          password-manager tokens   personal tokens / MCP  │
 │    holds: no upstream credentials, its own DB only                        │
 ├────────────────────────────── only via ───────────────────────────────────┤
@@ -105,7 +105,7 @@ moves a line, recording code and Oracle proof separately.
                     ├ /auth/       Keycloak                      (PR 11)
                     ├ /join/       sign-up app                   (today)
                     ├ /account/    portal                        (PR 14)
-                    └ /admin/      admin console                 (PR 15)
+                    └ /console/    admin console                 (PR 15; mailcow keeps /admin)
                                    │
            experience containers ──┤ avedeus-edge (internal)
                                    ▼
@@ -153,7 +153,7 @@ and may use only its row's implemented operations.
 |---|---|---|---|
 | `signup` (public `/join`) | Bearer token + source IP | Check address; create mailbox from an invitation (from PR 12: redeem invitation, which creates the Keycloak user, then the mailbox) | The invitation, never a request field |
 | `portal` (`/account`) | Service credential + the user's Keycloak access token | The signed-in user's own notifications; links to native settings (aliases parked, rules owned by SOGo, privacy is configuration) | The verified Keycloak token (`sub`), never a request field |
-| `admin` (`/admin`) | Service credential + admin's Keycloak token in the admin group, TOTP, allowed IP | Account lifecycle, invitations, audit read | The verified Keycloak token |
+| `admin` (`/console`, PR 15) | Service credential + source IP + the admin's Keycloak access token (client `avedeus-admin`, `admins` group, `otp` in `amr`); break-glass from `127.0.0.1` with the token alone | Message trace, accounts list, audit read now; account lifecycle in PR 16. Invitations are the sign-up app's (internal API, ADR 0020) | The verified Keycloak token (actor) |
 | `pm-token` (password managers) | Per-user token, hashed at rest | Create a random alias for the token's owner (parked with PR 10) | The token's owner |
 | `personal-token` / MCP (M10) | Per-user scoped, IP-limited, short-lived token | A subset of the `portal` row, read-only first | The token's owner |
 | `monitoring` | Bearer token + source IP (`health-check.sh` via `broker.probe`, in-container) | `/v1/health`, `/v1/upstream` only | n/a |
@@ -183,7 +183,7 @@ Events never contain passwords, tokens or message content.
 | Network | Members | Rule |
 |---|---|---|
 | mailcow's own (`172.22.1.0/24`) | mailcow containers only | Postfix trusts this subnet to relay without auth, so **nothing of ours joins it** (audit fix 6). |
-| `avedeus-edge` (`172.30.240.0/24`, internal) | nginx-mailcow `.2`, sign-up `.10`, control plane `.11`, Keycloak `.12` (PR 11, not deployed until the ADR 0006 gate), portal `.13` (PR 14, same gate); later admin | No route to the internet. The control plane reaches mailcow's API through nginx; `API_ALLOW_FROM` lists only `.11`. |
+| `avedeus-edge` (`172.30.240.0/24`, internal) | nginx-mailcow `.2`, sign-up `.10`, control plane `.11`, Keycloak `.12` (PR 11, not deployed until the ADR 0006 gate), portal `.13` (PR 14, same gate), admin console `.14` (PR 15, same gate) | No route to the internet. The control plane reaches mailcow's API through nginx; `API_ALLOW_FROM` lists only `.11`. |
 
 | `identity-db` (internal) | Keycloak, its Postgres | Keycloak's database is reachable by Keycloak only ([ADR 0019](adr/0019-identity-network-placement.md)). |
 
@@ -224,7 +224,8 @@ is proven on Oracle yet.**
 | Piece | Source | Layer | Becomes |
 |---|---|---|---|
 | mailcow-dockerized | upstream, `/opt/mailcow-dockerized` | 2 | unchanged |
-| Sign-up site + invite admin | `registration/` | 5 | sign-up only; admin pages move to `/admin` in PR 15 |
+| Sign-up site | `registration/` | 5 | sign-up only; keeps the invitations, with an internal API for the console (ADR 0020) |
+| Admin console | `admin/` | 5 | `/console`, Keycloak admins + one-time code (PR 15) |
 | Control plane (the broker) | `broker/` | 3 | grows one narrow adapter per integration actually in use |
 | `/join/` proxy rule, SOGo and login branding | `infrastructure/mailcow/configuration/` | 2 (supported custom files) | unchanged |
 | Backups, restore, health, alerts | `scripts/` | 4 | extended in M9 |
@@ -233,7 +234,7 @@ is proven on Oracle yet.**
 
 ### Sign-up flow today
 
-1. An admin creates an invitation at `/join/admin` (or the CLI). The token is
+1. An admin creates an invitation in the admin console (or the CLI). The token is
    192-bit random; only its SHA-256 is stored.
 2. The user opens `https://mail.<domain>/join/i/<token>` and chooses a
    username and password.

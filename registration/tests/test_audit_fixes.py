@@ -1,12 +1,9 @@
 """Fixes from the 2026-11-15 source audit: claim ids, revoke during sign-up,
-new-invite token kept out of the cookie, event retention, settings checks."""
-
-import base64
-import json
-import re
+event retention, settings checks. (The admin-page fixes left with the admin
+pages in PR 15; the admin console has its own tests.)"""
 
 import pytest
-from conftest import admin_login, csrf_of, register
+from conftest import register
 
 from app.cli import main as cli_main
 from app.config import load_settings
@@ -73,41 +70,12 @@ def test_old_database_gets_claim_id_column(tmp_path):
     assert "claim_id" in cols
 
 
-# ---- L1: new invite token not in the session cookie ---------------------------
-
-def _cookie_payload(client) -> dict:
-    raw = client.cookies.get("reg_session")
-    data = raw.split(".")[0]
-    return json.loads(base64.b64decode(data + "=" * (-len(data) % 4)))
-
-
-def test_new_invite_token_not_stored_in_cookie(ctx):
-    admin_login(ctx)
-    page = ctx.client.get("/join/admin")
-    r = ctx.client.post("/join/admin/invites", data={"csrf": csrf_of(page.text), "note": "x"},
-                        follow_redirects=False)
-    assert r.status_code == 303
-    assert "new_invite" not in _cookie_payload(ctx.client)
-    shown = ctx.client.get("/join/admin").text
-    token = re.search(r'id="newcode" readonly value="([^"]+)"', shown).group(1)
-    assert token not in json.dumps(_cookie_payload(ctx.client))
-    assert "Copy it now" not in ctx.client.get("/join/admin").text  # shown once
-
-
-def test_new_invite_reveal_expires(ctx):
-    admin_login(ctx)
-    page = ctx.client.get("/join/admin")
-    ctx.client.post("/join/admin/invites", data={"csrf": csrf_of(page.text)}, follow_redirects=False)
-    ctx.clock.advance(301)
-    assert "Copy it now" not in ctx.client.get("/join/admin").text
-
-
 # ---- L4: retention -------------------------------------------------------------
 
 def test_old_events_and_sessions_are_pruned(ctx):
-    ctx.db.log("admin_login_failed", detail="old", ip="198.51.100.7")
+    ctx.db.log("registered", detail="old", ip="198.51.100.7")
     ctx.clock.advance(181 * 86400)
-    ctx.db.log("admin_login_failed", detail="new", ip="198.51.100.8")
+    ctx.db.log("registered", detail="new", ip="198.51.100.8")
     assert ctx.client.get("/join/healthz").status_code == 200
     details = [r["detail"] for r in ctx.db.query("SELECT detail FROM events")]
     assert details == ["new"]
@@ -115,11 +83,10 @@ def test_old_events_and_sessions_are_pruned(ctx):
 
 # ---- L5 / L8: settings and CLI checks -----------------------------------------
 
-@pytest.mark.parametrize("secret", ["not base32!", "ABCDEFGH"])
-def test_bad_totp_secret_rejected_at_startup(env, secret):
-    env["ADMIN_TOTP_SECRET"] = secret
-    with pytest.raises(RuntimeError, match="ADMIN_TOTP_SECRET"):
-        load_settings(env)
+@pytest.mark.parametrize("name", ["ADMIN_USERNAME", "ADMIN_TOTP_SECRET", "ADMIN_ALLOWED_IPS"])
+def test_old_admin_settings_are_refused_with_a_pointer(env, name):
+    with pytest.raises(RuntimeError, match="admin pages left the sign-up app"):
+        load_settings({**env, name: "leftover"})
 
 
 def test_cli_create_invite_respects_max_quota(tmp_path, monkeypatch, capsys):
@@ -130,15 +97,18 @@ def test_cli_create_invite_respects_max_quota(tmp_path, monkeypatch, capsys):
     assert cli_main(["create-invite", "--quota", "4096"]) == 0
 
 
-# ---- M4: admin pages must be limited to known addresses ------------------------
+# ---- M4 (PR 15): the internal API needs its own token, from its own address ----
 
-def test_admin_ips_required_unless_explicitly_open(env):
-    env.pop("ADMIN_ALLOW_ANY")
-    with pytest.raises(RuntimeError, match="ADMIN_ALLOWED_IPS"):
-        load_settings(env)
-    assert load_settings({**env, "ADMIN_ALLOWED_IPS": "203.0.113.7, 10.8.0.0/24"}).admin_allowed_ips
+def test_console_settings(env):
+    s = load_settings(env)
+    assert s.admin_console_clients == "172.30.240.14"
+    assert load_settings({**env, "ADMIN_CONSOLE_TOKEN": ""}).admin_console_token == ""
+    with pytest.raises(RuntimeError, match="at least 32"):
+        load_settings({**env, "ADMIN_CONSOLE_TOKEN": "short"})
+    with pytest.raises(RuntimeError, match="differ from BROKER_TOKEN"):
+        load_settings({**env, "ADMIN_CONSOLE_TOKEN": env["BROKER_TOKEN"]})
     with pytest.raises(RuntimeError, match="not a valid"):
-        load_settings({**env, "ADMIN_ALLOWED_IPS": "my-home"})
+        load_settings({**env, "ADMIN_CONSOLE_CLIENTS": "my-home"})
 
 
 # ---- H2: the app holds no mailcow key -----------------------------------------

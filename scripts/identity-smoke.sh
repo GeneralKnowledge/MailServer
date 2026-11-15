@@ -90,6 +90,14 @@ bad=$(curl -s -o /dev/null -w '%{http_code}' "$auth&redirect_uri=https://evil.ex
 if [ "$good" = 200 ] && [ "$bad" = 400 ]; then pass "portal client: exact redirect only"
 else fail "portal client: good redirect $good, bad redirect $bad"; fi
 
+# 3c. The admin console client (PR 15): same exact-redirect rule, and the
+#     realm still has its default browser flow next to the console's own.
+auth="$KC/realms/avedeus/protocol/openid-connect/auth?client_id=avedeus-admin&response_type=code&scope=openid&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256"
+good=$(curl -s -o /dev/null -w '%{http_code}' "$auth&redirect_uri=https://$MAIL_HOSTNAME/console/callback")
+bad=$(curl -s -o /dev/null -w '%{http_code}' "$auth&redirect_uri=https://$MAIL_HOSTNAME/account/callback")
+if [ "$good" = 200 ] && [ "$bad" = 400 ]; then pass "admin console client: exact redirect only"
+else fail "admin console client: good redirect $good, bad redirect $bad"; fi
+
 # 4. No password grant (ADR 0015): Keycloak never checks a mail-client password.
 err=$(curl -s -d grant_type=password -d client_id=mailcow --data-urlencode "client_secret=$MAILCOW_OIDC_SECRET" \
   -d username=nobody -d password=nothing "$KC/realms/avedeus/protocol/openid-connect/token" | jq -r .error)

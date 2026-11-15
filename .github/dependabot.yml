@@ -42,6 +42,17 @@ updates:
     directory: /portal
     schedule:
       interval: weekly
+  - package-ecosystem: pip
+    directory: /admin
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: /admin
+    schedule:
+      interval: weekly
   - package-ecosystem: docker-compose
     directory: /infrastructure/identity
     schedule:

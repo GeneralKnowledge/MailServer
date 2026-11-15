@@ -78,6 +78,25 @@ jobs:
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: python -m pytest -q
 
+  admin-tests:
+    name: Admin console tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: admin/requirements*.txt
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: python -m pytest -q
+
   contracts:
     name: Contracts
     runs-on: ubuntu-latest
@@ -123,6 +142,7 @@ jobs:
           MAILCOW_OIDC_SECRET=$(r)
           CONTROL_PLANE_OIDC_SECRET=$(r)
           PORTAL_OIDC_SECRET=$(r)
+          ADMIN_OIDC_SECRET=$(r)
           EOF
           sed -i 's/^ *//' infrastructure/identity/identity.env
           KEEP=1 scripts/identity-smoke.sh
@@ -148,7 +168,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install pip-audit
-      - run: pip-audit --strict -r registration/requirements.txt -r broker/requirements.txt -r portal/requirements.txt
+      - run: pip-audit --strict -r registration/requirements.txt -r broker/requirements.txt -r portal/requirements.txt -r admin/requirements.txt
 
   shellcheck:
     name: Shell scripts
@@ -171,6 +191,7 @@ jobs:
       - run: docker build -t mailserver-registration:ci registration
       - run: docker build -t mailserver-broker:ci broker
       - run: docker build -t mailserver-portal:ci portal
+      - run: docker build -t mailserver-admin:ci admin
       - name: Broker starts and answers /healthz
         run: |
           docker run -d --name broker -p 8100:8100 \
@@ -185,11 +206,10 @@ jobs:
           exit 1
       - name: App starts and answers /healthz
         run: |
-          secret=$(python3 -c "import base64,os;print(base64.b32encode(os.urandom(20)).decode())")
           docker run -d --name reg -p 8000:8000 \
             -e BROKER_TOKEN="$(openssl rand -hex 32)" -e MAIL_DOMAIN=example.com \
-            -e SESSION_SECRET="$(openssl rand -hex 32)" -e ADMIN_USERNAME=admin -e ADMIN_PASSWORD_HASH=x \
-            -e ADMIN_TOTP_SECRET="$secret" -e ADMIN_ALLOWED_IPS=127.0.0.1 -e DATABASE_PATH=/data/r.sqlite3 \
+            -e SESSION_SECRET="$(openssl rand -hex 32)" -e ADMIN_CONSOLE_TOKEN="$(openssl rand -hex 32)" \
+            -e DATABASE_PATH=/data/r.sqlite3 \
             mailserver-registration:ci
           for i in $(seq 1 30); do
             curl -fsS http://127.0.0.1:8000/join/healthz && exit 0

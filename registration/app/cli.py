@@ -2,23 +2,20 @@
 
     docker compose exec registration python -m app.cli <command>
 
-Commands:
-    hash-password            prompt for a password, print its argon2 hash (ADMIN_PASSWORD_HASH)
-    new-totp [account]       print a new TOTP secret (ADMIN_TOTP_SECRET) and otpauth:// URI
+Commands (the admin pages moved to the admin console in PR 15; these work
+without it, e.g. while Keycloak is not deployed):
     create-invite [--quota MB] [--days N] [--note TEXT]
     list                     list invitations
     revoke ID
+    extend ID --days N
     backup DEST              consistent copy of the SQLite database
 """
 
 from __future__ import annotations
 
 import argparse
-import getpass
 import os
 import sys
-
-from .security import hash_password, new_totp_secret, totp_uri
 
 
 def _db():
@@ -29,27 +26,15 @@ def _db():
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="app.cli")
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("hash-password")
-    t = sub.add_parser("new-totp"); t.add_argument("account", nargs="?", default="admin")
     c = sub.add_parser("create-invite")
     c.add_argument("--quota", type=int, default=int(os.environ.get("DEFAULT_QUOTA_MB", 2048)))
     c.add_argument("--days", type=int, default=int(os.environ.get("INVITE_DAYS", 7)))
     c.add_argument("--note", default="")
     sub.add_parser("list")
     r = sub.add_parser("revoke"); r.add_argument("id", type=int)
+    e = sub.add_parser("extend"); e.add_argument("id", type=int); e.add_argument("--days", type=int, required=True)
     b = sub.add_parser("backup"); b.add_argument("dest")
     a = p.parse_args(argv)
-
-    if a.cmd == "hash-password":
-        pw = getpass.getpass("Admin password: ")
-        if len(pw) < 14:
-            print("Use at least 14 characters.", file=sys.stderr); return 1
-        if pw != getpass.getpass("Repeat: "):
-            print("Passwords differ.", file=sys.stderr); return 1
-        print(hash_password(pw)); return 0
-    if a.cmd == "new-totp":
-        s = new_totp_secret()
-        print(f"ADMIN_TOTP_SECRET={s}\n{totp_uri(s, a.account)}"); return 0
 
     from .invites import Invitations
     db = _db(); inv = Invitations(db)
@@ -69,6 +54,11 @@ def main(argv=None) -> int:
             print(f"#{i.id:<4} {i.status:<11} {i.hint}…  {i.quota_mb}MB  {i.redeemed_address or ''}  {i.note}")
     elif a.cmd == "revoke":
         print("revoked" if inv.revoke(a.id, ip="cli") else "not revocable"); return 0
+    elif a.cmd == "extend":
+        try:
+            print("extended" if inv.extend(a.id, a.days, ip="cli") else "not extendable")
+        except ValueError as err:
+            print(err, file=sys.stderr); return 1
     elif a.cmd == "backup":
         db.backup_to(a.dest); print(f"backup written to {a.dest}")
     return 0

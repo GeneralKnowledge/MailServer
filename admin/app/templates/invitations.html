@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Invitations · {{ brand }}{% endblock %}
+{% block content %}
+<h1>Invitations</h1>
+{% if new_invite %}
+<div class="notice">
+  <strong>Invitation #{{ new_invite.id }} created.</strong> Copy it now: it won't be shown again.
+  <label for="newlink">Link</label>
+  <input id="newlink" readonly value="{{ new_invite.link }}">
+  <label for="newcode">Code</label>
+  <input id="newcode" readonly value="{{ new_invite.code }}">
+  <p class="muted">Expires {{ new_invite.expires | ts }}.</p>
+</div>
+{% endif %}
+
+<h2>New invitation</h2>
+<form method="post" action="{{ base }}/invitations" class="inline">
+  <input type="hidden" name="csrf" value="{{ user.csrf }}">
+  <label>Note (who it's for)<input name="note" maxlength="200"></label>
+  <label>Mailbox size (MB)<input name="quota_mb" type="number" min="1" max="{{ defaults.max_quota_mb or 10240 }}" value="{{ defaults.quota_mb or 2048 }}"></label>
+  <label>Expires in (days)<input name="days" type="number" min="1" max="90" value="{{ defaults.days or 7 }}"></label>
+  <button type="submit">Create</button>
+</form>
+
+<h2>All invitations</h2>
+<div class="scroll">
+<table class="list">
+  <thead><tr><th>#</th><th>Code starts</th><th>Note</th><th>Status</th><th>Address</th><th>Size</th><th>Created</th><th>Expires</th><th></th></tr></thead>
+  <tbody>
+  {% for i in invites %}
+  <tr class="s-{{ i.status }}">
+    <td>{{ i.id }}</td><td><code>{{ i.hint }}…</code></td><td>{{ i.note }}</td>
+    <td>{{ i.status | replace("_", " ") }}</td>
+    <td>{{ i.redeemed_address or "" }}</td><td>{{ i.quota_mb }} MB</td>
+    <td>{{ i.created_at | ts }}</td><td>{{ i.expires_at | ts }}</td>
+    <td class="actions">
+      {% if i.status in ("valid", "expired", "in_progress") %}
+      <form method="post" action="{{ base }}/invitations/{{ i.id }}/extend">
+        <input type="hidden" name="csrf" value="{{ user.csrf }}"><input type="hidden" name="days" value="{{ defaults.days or 7 }}">
+        <button class="small">{{ "Renew" if i.status == "expired" else "Extend" }} {{ defaults.days or 7 }}d</button>
+      </form>
+      <form method="post" action="{{ base }}/invitations/{{ i.id }}/revoke">
+        <input type="hidden" name="csrf" value="{{ user.csrf }}"><button class="small danger">Revoke</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="9" class="muted">No invitations yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<h2>Sign-up failures</h2>
+{% if failures %}
+<div class="scroll"><table class="list">
+  <thead><tr><th>When</th><th>Invitation</th><th>Address</th><th>Detail</th></tr></thead>
+  <tbody>{% for f in failures %}
+  <tr><td>{{ f.at | ts }}</td><td>{% if f.invitation_id %}#{{ f.invitation_id }}{% endif %}</td><td>{{ f.address }}</td><td><code>{{ f.detail }}</code></td></tr>
+  {% endfor %}</tbody>
+</table></div>
+{% else %}<p class="muted">None.</p>{% endif %}
+{% endblock %}

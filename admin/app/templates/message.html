@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · {{ brand }}{% endblock %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p>{{ message }}</p>
+{% if retry %}<p><a class="button" href="{{ base }}/login">Sign in again</a></p>{% endif %}
+{% endblock %}

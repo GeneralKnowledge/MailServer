@@ -4,8 +4,13 @@ Public pages:   {base}/            enter an invitation code
                 {base}/i/{token}   invitation link -> registration form
                 {base}/register    POST: create the mailbox
                 {base}/check       GET: username availability (needs a valid invitation)
-Admin pages:    {base}/admin       invitations, registrations, failures
 Health:         {base}/healthz
+Internal API:   /internal/v1/...   invitations, for the admin console only (PR 15, ADR 0020)
+
+The admin pages moved to the admin console (admin/, at /admin) in PR 15.
+Invitations stay here: the console reaches them through the internal API,
+outside {base}, so mailcow's nginx (which proxies only {base}/) never
+forwards it, and only with its own token from its own address.
 """
 
 from __future__ import annotations
@@ -18,7 +23,7 @@ import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, FastAPI, Form, Request
+from fastapi import APIRouter, Body, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -28,15 +33,12 @@ from .config import Settings, load_settings
 from .db import Database
 from .invites import Invitations
 from .provisioning import BrokerClient, ProvisioningError
-from .security import (RateLimiter, csrf_ok, csrf_token, ip_allowed, parse_networks, totp_step,
-                       verify_password)
+from .security import RateLimiter, csrf_ok, csrf_token, ip_allowed, parse_networks
 from .validation import normalise_username, password_error, username_error
 
 log = logging.getLogger("registration")
 HERE = Path(__file__).parent
-ADMIN_SESSION_SECONDS = 8 * 3600
-ADMIN_IDLE_SECONDS = 3600
-NEW_INVITE_REVEAL_SECONDS = 300  # a newly created invite link is shown once, within this time
+SESSION_SECONDS = 3600  # the cookie carries only the CSRF token
 PRUNE_INTERVAL_SECONDS = 3600
 
 INVITE_PROBLEMS = {
@@ -70,7 +72,7 @@ def create_app(settings: Settings | None = None, *, broker: BrokerClient | None 
     app.state.db, app.state.invites, app.state.limiter = db, invites, rl
     app.add_middleware(
         SessionMiddleware, secret_key=s.session_secret, session_cookie="reg_session",
-        max_age=ADMIN_SESSION_SECONDS, path=s.base_path or "/", same_site="lax", https_only=s.secure_cookies,
+        max_age=SESSION_SECONDS, path=s.base_path or "/", same_site="lax", https_only=s.secure_cookies,
     )
 
     @app.middleware("http")
@@ -112,7 +114,7 @@ def create_app(settings: Settings | None = None, *, broker: BrokerClient | None 
         now = clock()
         if now - last_prune[0] >= PRUNE_INTERVAL_SECONDS:
             last_prune[0] = now
-            db.prune(event_days=s.event_retention_days, admin_session_seconds=ADMIN_SESSION_SECONDS)
+            db.prune(event_days=s.event_retention_days)
 
     @r.get("/healthz")
     def healthz():
@@ -238,159 +240,91 @@ def create_app(settings: Settings | None = None, *, broker: BrokerClient | None 
         # None: the reply was lost, so we don't know; the page then explains app passwords.
         return page(request, "done.html", address=address, app_password_required=app_password_required)
 
-    # ---- admin -------------------------------------------------------------
+    # ---- internal API for the admin console (PR 15, ADR 0020) ----------------
 
-    admin_nets = parse_networks(s.admin_allowed_ips)
+    console_nets = parse_networks(s.admin_console_clients)
 
-    @app.middleware("http")
-    async def admin_ip_gate(request: Request, call_next):
-        # Hide the admin pages entirely from addresses outside ADMIN_ALLOWED_IPS.
-        if request.url.path.startswith(f"{s.base_path}/admin") and not ip_allowed(ip(request), admin_nets):
-            return HTMLResponse("Not found", status_code=404)
-        return await call_next(request)
+    def console(request: Request) -> str | JSONResponse:
+        """The admin console's own token from its own address, never through
+        nginx. Returns who acted (the admin's Keycloak id, for the event log)."""
+        refuse = JSONResponse({"ok": False, "kind": "forbidden", "detail": ""}, 403)
+        if not s.admin_console_token or "x-forwarded-for" in request.headers:
+            return refuse
+        if not ip_allowed(ip(request), console_nets) or not console_nets:
+            return refuse
+        auth = request.headers.get("authorization", "")
+        if not secrets.compare_digest(auth.encode(), f"Bearer {s.admin_console_token}".encode()):
+            log.warning("internal API: wrong token from %s", ip(request))
+            return JSONResponse({"ok": False, "kind": "unauthorized", "detail": ""}, 401)
+        actor = request.headers.get("x-admin-actor", "")
+        actor = "".join(ch for ch in actor if ch.isalnum() or ch in "-_.@")[:64]
+        return f"admin:{actor or 'unknown'}"
 
-    def _sid_hash(sid: str) -> str:
-        return hashlib.sha256(sid.encode()).hexdigest()
+    def public(inv) -> dict:
+        return {"id": inv.id, "hint": inv.hint, "note": inv.note, "quota_mb": inv.quota_mb,
+                "created_at": inv.created_at, "expires_at": inv.expires_at,
+                "redeemed_address": inv.redeemed_address, "status": inv.status}
 
-    def admin_ok(request: Request) -> bool:
-        sid = request.session.get("admin_sid")
-        if not sid:
-            return False
-        now = int(clock())
-        h = _sid_hash(sid)
-        row = db.one("SELECT * FROM admin_sessions WHERE id_hash=?", (h,))
-        if not row or now - row["created_at"] > ADMIN_SESSION_SECONDS or now - row["seen_at"] > ADMIN_IDLE_SECONDS:
-            if row:
-                db.execute("DELETE FROM admin_sessions WHERE id_hash=?", (h,))
-            request.session.clear()
-            return False
-        db.execute("UPDATE admin_sessions SET seen_at=? WHERE id_hash=?", (now, h))
-        return True
+    def bad(detail: str, status: int = 422) -> JSONResponse:
+        return JSONResponse({"ok": False, "kind": "invalid" if status == 422 else "conflict", "detail": detail},
+                            status)
 
-    # A newly created invitation's token is shown on the next admin page view
-    # only. It is held here in memory (one process by design), keyed by the
-    # admin session, never in the cookie: Starlette sessions are signed, not
-    # encrypted.
-    new_invites: dict[str, tuple[float, dict]] = {}
+    @app.get("/internal/v1/invitations")
+    def internal_list(request: Request):
+        who = console(request)
+        if isinstance(who, JSONResponse):
+            return who
+        failures = db.query("SELECT at, invitation_id, address, detail FROM events WHERE kind='provision_failed' "
+                            "ORDER BY id DESC LIMIT 50")
+        return {"ok": True, "invitations": [public(i) for i in invites.list()],
+                "failures": [dict(f) for f in failures],
+                "defaults": {"quota_mb": s.default_quota_mb, "max_quota_mb": s.max_quota_mb, "days": s.invite_days},
+                "join_url": f"{s.public_url}{s.base_path}"}
 
-    def stash_new_invite(request: Request, info: dict) -> None:
-        now = clock()
-        for k in [k for k, (at, _) in new_invites.items() if now - at > NEW_INVITE_REVEAL_SECONDS]:
-            del new_invites[k]
-        new_invites[_sid_hash(request.session["admin_sid"])] = (now, info)
+    @app.post("/internal/v1/invitations", status_code=201)
+    def internal_create(request: Request, body: dict = Body(...)):
+        who = console(request)
+        if isinstance(who, JSONResponse):
+            return who
+        try:
+            quota = int(body.get("quota_mb") or s.default_quota_mb)
+            days = int(body.get("days") or s.invite_days)
+        except (TypeError, ValueError):
+            return bad("quota_mb and days must be numbers")
+        note = str(body.get("note", ""))[:200]
+        if not 1 <= quota <= s.max_quota_mb or not 1 <= days <= 90:
+            return bad(f"quota must be 1-{s.max_quota_mb} MB and expiry 1-90 days")
+        token, inv = invites.create(quota_mb=quota, days=days, note=note, ip=ip(request), by=who)
+        # The secret token is in this one answer only; only its hash is stored.
+        return {"ok": True, "token": token, "link": f"{s.public_url}{s.base_path}/i/{token}", "invitation": public(inv)}
 
-    def take_new_invite(request: Request) -> dict | None:
-        item = new_invites.pop(_sid_hash(request.session.get("admin_sid", "")), None)
-        if item and clock() - item[0] <= NEW_INVITE_REVEAL_SECONDS:
-            return item[1]
-        return None
+    @app.post("/internal/v1/invitations/{inv_id}/revoke")
+    def internal_revoke(request: Request, inv_id: int):
+        who = console(request)
+        if isinstance(who, JSONResponse):
+            return who
+        if not invites.revoke(inv_id, ip(request), by=who):
+            inv = invites.get(inv_id)
+            if inv is None:
+                return JSONResponse({"ok": False, "kind": "not_found", "detail": ""}, 404)
+            return bad(f"invitation is {inv.status}", 409)
+        return {"ok": True, "invitation": public(invites.get(inv_id))}
 
-    def to_login():
-        return RedirectResponse(f"{s.base_path}/admin/login", status_code=303)
-
-    @r.get("/admin/login", response_class=HTMLResponse)
-    def admin_login_form(request: Request):
-        return page(request, "admin_login.html")
-
-    @r.post("/admin/login", response_class=HTMLResponse)
-    def admin_login(request: Request, username: str = Form(""), password: str = Form(""),
-                    code: str = Form(""), csrf: str = Form("")):
-        client = ip(request)
-        if not csrf_ok(request.session, csrf):
-            return page(request, "admin_login.html", 400, error="Form expired; try again.")
-        if not rl.hit("login", client, s.rl_login_per_15min, 900) or \
-                not rl.hit("login-all", "*", s.rl_login_global_per_hour, 3600):
-            db.log("admin_login_failed", detail="rate limited", ip=client)
-            return page(request, "admin_login.html", 429, error="Too many attempts. Wait 15 minutes.")
-        user_ok = secrets.compare_digest(username.encode(), s.admin_username.encode())
-        pw_ok = verify_password(s.admin_password_hash, password)
-        step = totp_step(s.admin_totp_secret, code, at=clock())
-        last = db.one("SELECT value FROM state WHERE key='totp_last_step'")
-        replay = step is not None and last is not None and step <= int(last["value"])
-        if not (user_ok and pw_ok and step is not None) or replay:
-            db.log("admin_login_failed", detail=f"user={username[:50]}" + (" (code reused)" if replay else ""), ip=client)
-            return page(request, "admin_login.html", 401, error="Wrong username, password or code.")
-        db.execute("INSERT INTO state(key, value) VALUES ('totp_last_step', ?) "
-                   "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(step),))
-        now = int(clock())
-        db.prune(event_days=s.event_retention_days, admin_session_seconds=ADMIN_SESSION_SECONDS)
-        sid = secrets.token_urlsafe(32)
-        db.execute("INSERT INTO admin_sessions(id_hash, created_at, seen_at, ip) VALUES (?,?,?,?)",
-                   (_sid_hash(sid), now, now, client))
-        request.session.clear()  # new session: no fixation
-        request.session["admin_sid"] = sid
-        db.log("admin_login", ip=client)
-        return RedirectResponse(f"{s.base_path}/admin", status_code=303)
-
-    @r.post("/admin/logout")
-    def admin_logout(request: Request, csrf: str = Form("")):
-        sid = request.session.get("admin_sid")
-        if sid and csrf_ok(request.session, csrf):
-            db.execute("DELETE FROM admin_sessions WHERE id_hash=?", (_sid_hash(sid),))
-            request.session.clear()
-        return to_login()
-
-    @r.post("/admin/logout-all")
-    def admin_logout_all(request: Request, csrf: str = Form("")):
-        if admin_ok(request) and csrf_ok(request.session, csrf):
-            db.execute("DELETE FROM admin_sessions")
-            db.log("admin_logout_all", ip=ip(request))
-            request.session.clear()
-        return to_login()
-
-    @r.get("/admin", response_class=HTMLResponse)
-    def admin_home(request: Request):
-        if not admin_ok(request):
-            return to_login()
-        new = take_new_invite(request)
-        flash = request.session.pop("flash", None)
-        failures = db.query("SELECT * FROM events WHERE kind='provision_failed' ORDER BY id DESC LIMIT 50")
-        logins = db.query("SELECT * FROM events WHERE kind LIKE 'admin_login%' ORDER BY id DESC LIMIT 10")
-        return page(request, "admin.html", invites=invites.list(), failures=failures, logins=logins,
-                    new_invite=new, flash=flash, default_quota=s.default_quota_mb,
-                    max_quota=s.max_quota_mb, default_days=s.invite_days)
-
-    @r.post("/admin/invites")
-    def admin_create(request: Request, quota_mb: int = Form(0), days: int = Form(0), note: str = Form(""),
-                     csrf: str = Form("")):
-        if not admin_ok(request):
-            return to_login()
-        if not csrf_ok(request.session, csrf):
-            request.session["flash"] = "Form expired; try again."
-            return RedirectResponse(f"{s.base_path}/admin", status_code=303)
-        quota = quota_mb or s.default_quota_mb
-        days = days or s.invite_days
-        if not (1 <= quota <= s.max_quota_mb) or not (1 <= days <= 90):
-            request.session["flash"] = f"Quota must be 1–{s.max_quota_mb} MB and expiry 1–90 days."
-            return RedirectResponse(f"{s.base_path}/admin", status_code=303)
-        token, inv = invites.create(quota_mb=quota, days=days, note=note, ip=ip(request))
-        stash_new_invite(request, {"id": inv.id, "link": f"{s.public_url}{s.base_path}/i/{token}",
-                                   "code": token, "expires": inv.expires_at})
-        return RedirectResponse(f"{s.base_path}/admin", status_code=303)
-
-    @r.post("/admin/invites/{inv_id}/revoke")
-    def admin_revoke(request: Request, inv_id: int, csrf: str = Form("")):
-        if not admin_ok(request):
-            return to_login()
-        if csrf_ok(request.session, csrf):
-            request.session["flash"] = (f"Invitation #{inv_id} revoked." if invites.revoke(inv_id, ip(request))
-                                        else f"Invitation #{inv_id} can't be revoked: it has been used, "
-                                             "or someone is signing up with it right now (try again in a few minutes).")
-        return RedirectResponse(f"{s.base_path}/admin", status_code=303)
-
-    @r.post("/admin/invites/{inv_id}/extend")
-    def admin_extend(request: Request, inv_id: int, days: int = Form(7), csrf: str = Form("")):
-        if not admin_ok(request):
-            return to_login()
-        if csrf_ok(request.session, csrf):
-            try:
-                ok = invites.extend(inv_id, days, ip(request))
-            except ValueError as e:
-                request.session["flash"] = str(e)
-            else:
-                request.session["flash"] = (f"Invitation #{inv_id} now expires in {days} days." if ok
-                                            else f"Invitation #{inv_id} can't be extended.")
-        return RedirectResponse(f"{s.base_path}/admin", status_code=303)
+    @app.post("/internal/v1/invitations/{inv_id}/extend")
+    def internal_extend(request: Request, inv_id: int, body: dict = Body(...)):
+        who = console(request)
+        if isinstance(who, JSONResponse):
+            return who
+        try:
+            ok = invites.extend(inv_id, int(body.get("days") or 0), ip(request), by=who)
+        except (TypeError, ValueError):
+            return bad("expiry must be 1-90 days")
+        if not ok:
+            inv = invites.get(inv_id)
+            if inv is None:
+                return JSONResponse({"ok": False, "kind": "not_found", "detail": ""}, 404)
+            return bad(f"invitation is {inv.status}", 409)
+        return {"ok": True, "invitation": public(invites.get(inv_id))}
 
     app.include_router(r)
     app.mount(f"{s.base_path}/static", StaticFiles(directory=str(HERE / "static")), name="static")

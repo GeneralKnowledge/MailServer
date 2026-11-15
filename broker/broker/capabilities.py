@@ -10,8 +10,9 @@ PUBLIC = frozenset({"healthz"})
 CAPABILITIES: dict[str, frozenset[str]] = {
     "signup": frozenset({"checkAddress", "createMailbox", "createAccount"}),
     "monitoring": frozenset({"upstreamCheck", "health"}),
-    # PR 34: token + source IP for now; PR 15 adds the admin's Keycloak token, group and TOTP.
-    "admin": frozenset({"traceMessage"}),
+    # PR 34, PR 15: token + source IP + the admin's own Keycloak token (avedeus-admin
+    # client, admins group, second factor), except break-glass from 127.0.0.1 (ADR 0020).
+    "admin": frozenset({"traceMessage", "listAccounts", "readAudit"}),
     # PR 14: the signed-in user's own account; the user comes from their verified Keycloak token.
     "portal": frozenset({"getOwnAccount"}),
 }

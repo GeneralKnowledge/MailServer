@@ -20,13 +20,12 @@ from broker.config import load_settings as load_broker_settings  # noqa: E402
 from broker.main import create_app as create_broker_app  # noqa: E402
 from broker.mailcow import MailcowClient  # noqa: E402
 from fastapi.testclient import TestClient as _TC  # noqa: E402
-from app.security import RateLimiter, hash_password, new_totp_secret, totp_now  # noqa: E402
+from app.security import RateLimiter  # noqa: E402
 
 from fake_mailcow import API_KEY, FakeMailcow  # noqa: E402
 
-ADMIN_PW = "correct horse battery staple"
-TOTP = new_totp_secret()
-_PW_HASH = hash_password(ADMIN_PW)
+CONSOLE_TOKEN = "c" * 40
+CONSOLE_ADDR = "172.30.240.14"
 GOOD_PW = "Sunny-River-42x"
 BROKER_TOKEN = "b" * 40
 
@@ -77,12 +76,9 @@ def env():
         "BROKER_TOKEN": BROKER_TOKEN,
         "MAIL_DOMAIN": "example.com",
         "SESSION_SECRET": "x" * 40,
-        "ADMIN_USERNAME": "boss",
-        "ADMIN_PASSWORD_HASH": _PW_HASH,
-        "ADMIN_TOTP_SECRET": TOTP,
         "DATABASE_PATH": ":memory:",
         "BRAND_NAME": "Test Mail",
-        "ADMIN_ALLOW_ANY": "1",
+        "ADMIN_CONSOLE_TOKEN": CONSOLE_TOKEN,
     }
 
 
@@ -111,17 +107,17 @@ def csrf_of(html: str) -> str:
     return m.group(1)
 
 
-def admin_login(c):
-    page = c.client.get("/join/admin/login")
-    return c.client.post("/join/admin/login", data={
-        "username": "boss", "password": ADMIN_PW, "code": totp_now(TOTP, at=c.clock()), "csrf": csrf_of(page.text),
-    }, follow_redirects=False)
+def console(c):
+    """A client calling from the admin console's address (PR 15)."""
+    return TestClient(c.app, base_url="http://registration:8000", client=(CONSOLE_ADDR, 50000),
+                      headers={"Authorization": f"Bearer {CONSOLE_TOKEN}", "X-Admin-Actor": "admin-sub-1"})
 
 
 def register(c, token, username="alice", password=GOOD_PW, confirm=None, name="Alice"):
     page = c.client.get(f"/join/i/{token}")
-    if 'name="csrf"' not in page.text:  # invalid invite: borrow a token from the same session
-        page = c.client.get("/join/admin/login")
+    if 'name="csrf"' not in page.text:  # invalid invite: borrow a form from a throwaway valid one
+        spare, _ = c.invites.create(quota_mb=1, days=1)
+        page = c.client.get(f"/join/i/{spare}")
     csrf = csrf_of(page.text)
     return c.client.post("/join/register", data={
         "token": token, "username": username, "display_name": name, "password": password,

@@ -4,7 +4,8 @@
 
 | Task | Where |
 |---|---|
-| Create / revoke / extend invitations, see who registered, see failures | `https://mail.example.com/join/admin` |
+| Create / revoke / extend invitations, see who registered, see failures | Admin console `https://<mail host>/console/` (with Keycloak, PR 15); until then `python -m app.cli` in the sign-up container ([admin-console.md](admin-console.md)) |
+| List accounts, read the audit log | Admin console (PR 15, read-only) |
 | Suspend a mailbox | mailcow UI → E-Mail → Configuration → Mailboxes → Edit → *Active: off* |
 | Change a password | same page, *Password* |
 | Change quota | same page, *Quota* |
@@ -16,7 +17,7 @@
 | Mail queue | mailcow System → Queue manager |
 | Why didn't a message arrive? | Message trace (below; PR 34) |
 
-The invite admin intentionally does **not** manage mailboxes; mailcow does.
+The admin console intentionally does **not** manage mailboxes yet (PR 16); mailcow does.
 
 ## Message trace (PR 34)
 

@@ -63,3 +63,22 @@ def mailbox(local="alice", **kw):
     body = {"local_part": local, "password": "Sunny-River-42x", "name": "Alice", "quota_mb": 2048}
     body.update(kw)
     return body
+
+
+class StubAdminTokens:
+    """Stands in for the admin UserTokenVerifier (PR 15): the real one is tested
+    in test_own_account.py and test_admin.py against signed tokens."""
+
+    GOOD = "admin-user-token"
+
+    def __init__(self, amr=("pwd", "otp")):
+        self.amr = list(amr)
+
+    def verify(self, raw):
+        from broker.usertoken import TokenError
+        if raw != self.GOOD:
+            raise TokenError("bad signature")
+        return {"sub": "admin-sub-1", "azp": "avedeus-admin", "groups": ["admins"], "amr": self.amr}
+
+
+ADMIN_USER = {"X-User-Token": StubAdminTokens.GOOD}

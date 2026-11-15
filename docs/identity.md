@@ -25,7 +25,7 @@ file, the realm file, an nginx include and backup lines.
 | File | What it is |
 |---|---|
 | `infrastructure/identity/docker-compose.yml` | Keycloak 26.8 and Postgres 17 (official multi-arch images, arm64 included), memory and pids limits, JVM heap capped at 512 MB, health checks |
-| `infrastructure/identity/realm/avedeus-realm.json` | Realm `avedeus`, its groups (`users`, `admins`) and two clients, as code. Secrets are `${...}` placeholders filled from `identity.env` at first import |
+| `infrastructure/identity/realm/avedeus-realm.json` | Realm `avedeus`, its groups (`users`, `admins`) and its clients (mailcow, control plane, portal, admin console), as code. Secrets are `${...}` placeholders filled from `identity.env` at first import |
 | `infrastructure/identity/identity.env.example` | Everything secret or host-specific |
 | `infrastructure/mailcow/configuration/nginx/site.identity.custom` | `/auth/` through mailcow's nginx; admin console and master realm closed unless an address is allowed |
 | `scripts/identity-smoke.sh` | Starts the stack and checks it (CI runs it on every push; on the server it is the gate's measurement step) |
@@ -36,8 +36,8 @@ file, the realm file, an nginx include and backup lines.
   control plane when an invitation is redeemed (PR 12).
 - Password policy: at least 12 characters, not the username or email, not one
   of the last 3. Brute-force protection on (10 failures, growing wait, no
-  permanent lockout). TOTP available to every user; the admin group's TOTP is
-  enforced in PR 15.
+  permanent lockout). TOTP available to every user; the admin console's client
+  requires it at every sign-in (PR 15).
 - Sessions: 30 minutes idle, 10 hours maximum. Login and admin events kept
   30 days; admin events never store request bodies.
 - Clients:
@@ -50,6 +50,14 @@ file, the realm file, an nginx include and backup lines.
     ([ADR 0003](adr/0003-control-plane-owns-upstream-credentials.md)).
   - Both include Keycloak's `kc-admin-api` scope, which Keycloak 26.8
     requires on tokens used against its admin API.
+  - `avedeus-portal` (PR 14): the account portal at `/account/`; browser
+    only, exact redirect. See [portal.md](portal.md).
+  - `avedeus-admin` (PR 15): the admin console at `/console/`; browser only,
+    exact redirect, and its own browser flow "admin console browser":
+    password **and** one-time code, both required, no SSO-cookie shortcut.
+    Its tokens carry `groups` and `amr`, which the control plane checks. See
+    [admin-console.md](admin-console.md) and
+    [ADR 0020](adr/0020-admin-console-and-invitations.md).
 
 The realm file is imported **only when the realm does not exist yet**. After
 the first start, change the realm through the admin console or the admin API
@@ -60,8 +68,8 @@ and update the file in the same PR, so the code stays the record.
   `mailcow_template` attribute is declared, visible and editable by admins
   only. Keycloak 24+ drops undeclared attributes, so it must be declared.
 
-Deferred to later PRs: a portal client (PR 14), the admin group's TOTP and
-IP rules (PR 15), the Avedeus theme (PR 18).
+Since added: the portal client (PR 14), the admin console's client and its
+two-factor flow (PR 15). Deferred: the Avedeus theme (PR 18).
 
 ## Network
 

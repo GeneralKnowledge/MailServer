@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import base64
-import binascii
 import os
 from dataclasses import dataclass, field
 
@@ -49,11 +47,10 @@ class Settings:
     session_secret: str
     secure_cookies: bool
 
-    # admin login
-    admin_username: str
-    admin_password_hash: str
-    admin_totp_secret: str
-    admin_allowed_ips: str  # comma-separated IPs/CIDRs allowed to reach /admin; empty only with ADMIN_ALLOW_ANY=1
+    # PR 15 (ADR 0020): the admin console's call to this app's internal invitation API.
+    # Empty token = the internal API is off (invitations then come from the CLI only).
+    admin_console_token: str
+    admin_console_clients: str  # comma-separated IPs/CIDRs; default: the admin console's fixed address
 
     # defaults
     default_quota_mb: int
@@ -66,39 +63,27 @@ class Settings:
     # rate limits (per client IP)
     rl_register_per_hour: int = 10
     rl_invite_check_per_hour: int = 30
-    rl_login_per_15min: int = 5
-    rl_login_global_per_hour: int = 30  # all IPs together; stops slow distributed guessing
 
     # event log rows (which hold client IPs) older than this are deleted; 0 = keep forever
     event_retention_days: int = 180
 
 
-def _check_totp_secret(secret: str) -> str:
-    """Fail at start-up, not at the first login, if the TOTP secret is unusable."""
-    s = secret.strip().replace(" ", "").upper()
+# PR 15: the admin pages moved to the admin console (admin/, ADR 0020).
+REMOVED = ("ADMIN_USERNAME", "ADMIN_PASSWORD_HASH", "ADMIN_TOTP_SECRET", "ADMIN_ALLOWED_IPS", "ADMIN_ALLOW_ANY",
+           "RL_LOGIN_PER_15MIN", "RL_LOGIN_GLOBAL_PER_HOUR")
+
+
+def _console(src) -> tuple[str, str]:
+    token = src.get("ADMIN_CONSOLE_TOKEN", "").strip()
+    if token and len(token) < 32:
+        raise RuntimeError("ADMIN_CONSOLE_TOKEN must be at least 32 characters (openssl rand -hex 32)")
+    clients = src.get("ADMIN_CONSOLE_CLIENTS", "").strip() or "172.30.240.14"
+    from .security import parse_networks
     try:
-        key = base64.b32decode(s + "=" * (-len(s) % 8))
-    except (binascii.Error, ValueError):
-        raise RuntimeError("ADMIN_TOTP_SECRET is not valid base32; create one with: python -m app.cli new-totp")
-    if len(key) < 16:
-        raise RuntimeError("ADMIN_TOTP_SECRET is too short (need at least 128 bits); use: python -m app.cli new-totp")
-    return s
-
-
-def _admin_ips(src) -> str:
-    """The admin pages must be limited to known addresses. Without that, anyone
-    can also trip the all-IPs login limit and lock the real admin out for an
-    hour. Opening them to everyone needs an explicit ADMIN_ALLOW_ANY=1."""
-    ips = src.get("ADMIN_ALLOWED_IPS", "").strip()
-    if not ips and not _bool(src, "ADMIN_ALLOW_ANY", False):
-        raise RuntimeError("Set ADMIN_ALLOWED_IPS (your IP or VPN range) or, to accept the risk, ADMIN_ALLOW_ANY=1")
-    if ips:
-        from .security import parse_networks
-        try:
-            parse_networks(ips)
-        except ValueError as e:
-            raise RuntimeError(f"ADMIN_ALLOWED_IPS is not a valid list of IPs/CIDRs: {e}") from None
-    return ips
+        parse_networks(clients)
+    except ValueError as e:
+        raise RuntimeError(f"ADMIN_CONSOLE_CLIENTS is not a valid list of IPs/CIDRs: {e}") from None
+    return token, clients
 
 
 def _broker_token(src) -> str:
@@ -129,10 +114,19 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
     if base_path == "/":
         base_path = ""
 
+    stale = [k for k in REMOVED if src.get(k, "").strip()]
+    if stale:
+        raise RuntimeError(f"{', '.join(stale)}: the admin pages left the sign-up app in PR 15. Remove these "
+                           "from .env; invitations are managed in the admin console or with python -m app.cli "
+                           "(docs/admin-console.md)")
+
     secret = req("SESSION_SECRET")
     if len(secret) < 32:
         raise RuntimeError("SESSION_SECRET must be at least 32 characters")
 
+    console_token, console_clients = _console(src)
+    if console_token and console_token == src.get("BROKER_TOKEN", "").strip():
+        raise RuntimeError("ADMIN_CONSOLE_TOKEN must differ from BROKER_TOKEN (one credential per caller)")
     return Settings(
         broker_url=src.get("BROKER_URL", "http://broker:8100").rstrip("/"),
         broker_token=_broker_token(src),
@@ -144,10 +138,8 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         database_path=src.get("DATABASE_PATH", "/data/registration.sqlite3"),
         session_secret=secret,
         secure_cookies=_bool(src, "SECURE_COOKIES", True),
-        admin_username=req("ADMIN_USERNAME"),
-        admin_password_hash=req("ADMIN_PASSWORD_HASH"),
-        admin_totp_secret=_check_totp_secret(req("ADMIN_TOTP_SECRET")),
-        admin_allowed_ips=_admin_ips(src),
+        admin_console_token=console_token,
+        admin_console_clients=console_clients,
         default_quota_mb=_int(src, "DEFAULT_QUOTA_MB", 2048),
         max_quota_mb=_int(src, "MAX_QUOTA_MB", 10240),
         invite_days=_int(src, "INVITE_DAYS", 7),
@@ -156,7 +148,5 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         reserved_usernames=DEFAULT_RESERVED | extra_reserved,
         rl_register_per_hour=_int(src, "RL_REGISTER_PER_HOUR", 10),
         rl_invite_check_per_hour=_int(src, "RL_INVITE_CHECK_PER_HOUR", 30),
-        rl_login_per_15min=_int(src, "RL_LOGIN_PER_15MIN", 5),
-        rl_login_global_per_hour=_int(src, "RL_LOGIN_GLOBAL_PER_HOUR", 30),
         event_retention_days=_int(src, "EVENT_RETENTION_DAYS", 180),
     )
