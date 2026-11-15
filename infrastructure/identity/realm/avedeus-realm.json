@@ -237,7 +237,8 @@
           "manage-users",
           "view-users",
           "query-users",
-          "query-groups"
+          "query-groups",
+          "view-events"
         ]
       }
     }
@@ -258,7 +259,8 @@
           "manage-users",
           "view-users",
           "query-users",
-          "query-groups"
+          "query-groups",
+          "view-events"
         ]
       }
     ]

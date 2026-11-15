@@ -16,6 +16,7 @@
 | System health | mailcow System → Status, and `scripts/health-check.sh` |
 | Mail queue | mailcow System → Queue manager |
 | Why didn't a message arrive? | Message trace (below; PR 34) |
+| Quota warnings, new-sign-in mails | [Notifications](#notifications-pr-26) |
 
 Aliases, app passwords and every other mailbox setting stay in mailcow's admin; users,
 groups and sessions in Keycloak's.
@@ -114,6 +115,42 @@ Setup (once):
 3. Lost two-factor device: they use a backup code if they made some;
    otherwise Users → the user → Credentials → delete the OTP credential, and
    they set it up again at the next sign-in.
+
+## Notifications (PR 26)
+
+> **Implemented in code; not proven on server; not deployed** (needs Keycloak,
+> ADR 0006 gate).
+
+| Notification | Who sends it | Turn on |
+|---|---|---|
+| Mailbox almost full (80 %, then 95 %) | mailcow itself | mailcow **System → Configuration → Options → Quota notifications**: sender `noreply@<mail domain>`, a subject, and the template (`{{percent}}`, `{{username}}`) |
+| Sign-in from a new network | `scripts/notify-signins.sh` (control plane) | `NOTIFY_SIGNINS=true` and the `NOTIFY_SMTP_*` lines in `broker.env`, then the cron line in the setup guide |
+
+The sign-in mail says when, from which internet address, and to what
+(webmail, account page, admin console), and tells the person to change their
+password and sign out other devices from the account page if it wasn't them.
+"New network" means an IPv4 /24 or IPv6 /48 the account hasn't signed in from
+in 180 days. The first run only learns (no mail), as does each person's first
+sign-in after sign-up. At most three mails per person per run.
+
+```sh
+sudo /opt/MailServer/scripts/notify-signins.sh --dry-run   # who would be mailed now
+```
+
+Setting up on a Keycloak that already exists: the realm file is only read on
+first start, so in Keycloak's admin console give the service account of
+`avedeus-control-plane` the `realm-management` role **view-events** (Clients →
+avedeus-control-plane → Service account roles), and add it to that client's
+dedicated scope. Without it the job fails with `auth` and alerts once.
+
+Not covered, by choice: logins by mail apps (app passwords never go through
+Keycloak; recent ones are on mailcow's user page) and push notifications (no
+push channel exists; mailcow's Pushover is for new mail only).
+
+The audit log gets one `notify.signin` per mail (address only) and one
+`notify.run` per run with counts. The networks are kept in the control
+plane's own database and forgotten after 180 days or when the account is
+deleted.
 
 ## Invitations
 

@@ -26,6 +26,8 @@ class FakeKeycloak:
         self.fail_next_create: str | None = None   # None | "timeout" | "http500"
         self.fail_next_update = False
         self.logouts: list[str] = []
+        self.events: list[dict] = []        # PR 26: LOGIN events, any order
+        self.events_forbidden = False
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -72,6 +74,15 @@ class FakeKeycloak:
             if mode == "timeout":
                 raise httpx.ReadTimeout("timed out after commit", request=request)
             return httpx.Response(201, headers={"Location": f"http://keycloak:8080{admin}/users/{uid}"})
+        # PR 26: sign-in events, newest first, paged.
+        if request.method == "GET" and rest == "/events":
+            if self.events_forbidden:
+                return httpx.Response(403, json={"error": "HTTP 403 Forbidden"})
+            p = request.url.params
+            evs = sorted((e for e in self.events if e["type"] in p.get_list("type")),
+                         key=lambda e: -e["time"])
+            first, mx = int(p.get("first", 0)), int(p.get("max", 100))
+            return httpx.Response(200, json=evs[first:first + mx])
         # PR 16: lifecycle.
         if rest.startswith("/users/") and rest.endswith("/logout") and request.method == "POST":
             uid = rest.split("/")[2]
