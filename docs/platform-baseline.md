@@ -13,7 +13,8 @@ shown working on the server, with a note of what was checked and when. A PR
 that moves no line says "baseline: no change". This stops work from looking
 finished when it has never been shown working together on the real box.
 
-Status as of PR 9 (2026-11-15).
+Status as of PR 13 (2026-11-15). PR 13: baseline lines unchanged; it
+connects existing alerts to `/v1/health` (operational foundation, no new line).
 
 | # | The baseline is done when… | In code | Proven on Oracle | What closes it |
 |---|---|---|---|---|

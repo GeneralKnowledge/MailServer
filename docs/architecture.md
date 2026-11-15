@@ -155,7 +155,7 @@ and may use only its row's implemented operations.
 | `admin` (`/admin`) | Service credential + admin's Keycloak token in the admin group, TOTP, allowed IP | Account lifecycle, invitations, audit read | The verified Keycloak token |
 | `pm-token` (password managers) | Per-user token, hashed at rest | Create a random alias for the token's owner | The token's owner |
 | `personal-token` / MCP (M10) | Per-user scoped, IP-limited, short-lived token | A subset of the `portal` row, read-only first | The token's owner |
-| `monitoring` | Bearer token + source IP | `/health` only | n/a |
+| `monitoring` | Bearer token + source IP (`health-check.sh` via `broker.probe`, in-container) | `/v1/health`, `/v1/upstream` only | n/a |
 
 ### Data ownership
 
