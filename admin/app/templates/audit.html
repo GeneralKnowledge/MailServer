@@ -2,13 +2,32 @@
 {% block title %}Audit log · {{ brand }}{% endblock %}
 {% block content %}
 <h1>Audit log</h1>
-<p class="muted">The control plane's append-only log, newest first. Invitation changes are in the sign-up
-app's own log (see Invitations); sign-ins are in <a href="{{ links.keycloak_events }}">Keycloak's events</a>.</p>
+<p class="muted">The control plane's append-only log, newest first: everything done through it, by
+whom, and every refusal.</p>
 <form method="get" action="{{ base }}/audit" class="inline">
   <label>Action starts with<input name="action" value="{{ form.action }}" maxlength="64" placeholder="account"></label>
-  <label>Outcome<input name="outcome" value="{{ form.outcome }}" maxlength="10" placeholder="ok, refused or failed"></label>
+  <label>Outcome<select name="outcome">{% for o in ["", "ok", "refused", "failed"] %}
+    <option value="{{ o }}"{% if form.outcome == o %} selected{% endif %}>{{ o or "any" }}</option>{% endfor %}</select></label>
+  <label>Account<input name="address" value="{{ form.address }}" maxlength="254" placeholder="name@domain"></label>
+  <label>From<input type="date" name="since" value="{{ form.since }}"></label>
+  <label>To<input type="date" name="until" value="{{ form.until }}"></label>
   <button type="submit">Filter</button>
 </form>
+<p>Download what this filter selects:
+  <a href="{{ base }}/audit/export?format=csv{% if query %}&amp;{{ query }}{% endif %}">CSV</a> ·
+  <a href="{{ base }}/audit/export?format=jsonl{% if query %}&amp;{{ query }}{% endif %}">JSON lines</a>
+  <span class="muted">(at most 20,000 events)</span></p>
+<details>
+  <summary>Other logs (kept by the systems themselves)</summary>
+  <ul>
+    <li><a href="{{ links.keycloak_events }}">Keycloak events</a>: sign-ins and failed sign-ins (User events),
+        and changes made in Keycloak's admin console (Admin events). Kept 30 days. Keycloak's admin console must be
+        open to your address (see identity.md).</li>
+    <li><a href="{{ links.mailcow_logs }}">mailcow's logs</a>: Logs → API shows recent calls to mailcow's API,
+        including the control plane's. Kept in memory, recent entries only.</li>
+    <li>Invitations: the sign-up app's own log, on the Invitations page.</li>
+  </ul>
+</details>
 {% if data and data.events is defined %}
 <div class="scroll"><table class="list">
   <thead><tr><th>When</th><th>Action</th><th>Outcome</th><th>Caller</th><th>Who</th><th>Subject</th><th>Error</th></tr></thead>
@@ -18,5 +37,6 @@ app's own log (see Invitations); sign-ins are in <a href="{{ links.keycloak_even
       <td>{{ e.subject.address if e.subject else "" }}</td><td>{{ e.error_kind or "" }}</td></tr>
   {% else %}<tr><td colspan="7" class="muted">No events.</td></tr>{% endfor %}</tbody>
 </table></div>
+{% if data.next %}<p><a href="{{ base }}/audit?{% if query %}{{ query }}&amp;{% endif %}before={{ data.next }}">Older events</a></p>{% endif %}
 {% endif %}
 {% endblock %}

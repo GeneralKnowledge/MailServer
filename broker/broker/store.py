@@ -172,6 +172,40 @@ class Store:
                                    (address.lower(), limit)).fetchall()
         return [json.loads(r[0]) for r in rows]
 
+    def query(self, *, action: str | None = None, outcome: str | None = None, address: str | None = None,
+              since: float | None = None, until: float | None = None, before: int | None = None,
+              limit: int = 100) -> tuple[list[dict], int | None]:
+        """Events newest first, filtered (PR 28). `action` matches itself and its
+        dotted children ("account" matches account.suspend). Returns the page
+        and the cursor for the next (older) page, or None at the end."""
+        where, args = [], []
+        if action:
+            a = action.rstrip(".")
+            where.append("(action = ? OR action LIKE ? ESCAPE '\\')")
+            args += [a, a.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + ".%"]
+        if outcome:
+            where.append("outcome = ?")
+            args.append(outcome)
+        if address:
+            where.append("address = ?")
+            args.append(address.lower())
+        if since is not None:
+            where.append("ts >= ?")
+            args.append(since)
+        if until is not None:
+            where.append("ts < ?")
+            args.append(until)
+        if before is not None:
+            where.append("seq < ?")
+            args.append(before)
+        sql = ("SELECT seq, event FROM audit_events" + (" WHERE " + " AND ".join(where) if where else "") +
+               " ORDER BY seq DESC LIMIT ?")
+        with self.lock:
+            rows = self.db.execute(sql, (*args, limit + 1)).fetchall()
+        more = len(rows) > limit
+        rows = rows[:limit]
+        return [json.loads(r[1]) for r in rows], (rows[-1][0] if more and rows else None)
+
     def events(self, limit: int = 1000) -> list[dict]:
         with self.lock:
             rows = self.db.execute("SELECT event FROM audit_events ORDER BY seq DESC LIMIT ?", (limit,)).fetchall()

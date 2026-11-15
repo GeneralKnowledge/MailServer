@@ -38,6 +38,8 @@ class Settings:
             "mailcow_admin": f"{u}/admin",
             "keycloak_users": f"{realm_admin}/users",
             "keycloak_events": f"{realm_admin}/events",
+            # PR 28: mailcow's own API log (Dashboard -> Logs -> API, in-memory, recent only).
+            "mailcow_logs": f"{u}/admin/dashboard",
             "kc_account": f"{kc}/account/",
         }
 

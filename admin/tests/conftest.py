@@ -74,6 +74,8 @@ class FakeUpstream:
         self.calls.append((request.method, request.url.path, dict(request.headers), body,
                            dict(request.url.params)))
         status, data = self.answers.get((request.method, request.url.path), (404, {"ok": False, "kind": "not_found"}))
+        if callable(data):   # an answer that depends on the request (paging)
+            data = data(request)
         return httpx.Response(status, json=data)
 
 
