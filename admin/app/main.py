@@ -313,6 +313,44 @@ def create_app(settings: Settings | None = None, *, oidc: OidcClient | None = No
                                                         "code": data["token"],
                                                         "expires": data["invitation"]["expires_at"]})
 
+    @r.post("/invitations/bulk")
+    def create_invitations(request: Request, names: str = Form(""), quota_mb: int = Form(0), days: int = Form(0),
+                           csrf: str = Form("")):
+        """PR 17: one invitation per line; every link is shown once, on this answer."""
+        u = current(request)
+        if not u:
+            return to_login()
+        if not need_csrf(u, csrf):
+            return invitations_page(request, u, 400, error="The form expired; try again.")
+        notes = [" ".join(n.split())[:200] for n in names.splitlines() if n.strip()]
+        if not 1 <= len(notes) <= 50:
+            return invitations_page(request, u, 400, error="Put one name per line, 1 to 50 names.")
+        code, data = call("signup", u, "POST", "/internal/v1/invitations/bulk",
+                          json={"notes": notes, "quota_mb": quota_mb or None, "days": days or None})
+        if code != 201:
+            return invitations_page(request, u, 400 if code else 502,
+                                    error=data.get("detail") or "The invitations couldn't be created.")
+        return invitations_page(request, u, new_invites=[
+            {"id": c["invitation"]["id"], "note": c["invitation"]["note"], "link": c["link"],
+             "expires": c["invitation"]["expires_at"]} for c in data["created"]])
+
+    @r.post("/invitations/{inv_id}/reissue")
+    def reissue_invitation(request: Request, inv_id: int, days: int = Form(0), csrf: str = Form("")):
+        """PR 17 "resend": a new link, shown once; the old one stops working."""
+        u = current(request)
+        if not u:
+            return to_login()
+        if not need_csrf(u, csrf):
+            return invitations_page(request, u, 400, error="The form expired; try again.")
+        code, data = call("signup", u, "POST", f"/internal/v1/invitations/{inv_id}/reissue",
+                          json={"days": days or None})
+        if code != 200:
+            return invitations_page(request, u, 400 if code else 502, error=f"Invitation #{inv_id} can't get a "
+                                    f"new link: {data.get('detail') or 'the sign-up app is not answering'}.")
+        return invitations_page(request, u, new_invite={"id": inv_id, "link": data["link"], "code": data["token"],
+                                                        "expires": data["invitation"]["expires_at"],
+                                                        "reissued": True})
+
     @r.post("/invitations/{inv_id}/{action}")
     def change_invitation(request: Request, inv_id: int, action: str, days: int = Form(7), csrf: str = Form("")):
         u = current(request)

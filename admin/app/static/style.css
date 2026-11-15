@@ -92,3 +92,11 @@ label.check input { width: auto; }
 form.danger button { background: #b42318; }
 form.danger label { flex: 1 1 260px; }
 .o-failed { color: var(--error-fg); }
+
+/* PR 17: several invitations at once */
+textarea { width: 100%; padding: 10px 12px; font: inherit; color: inherit; background: var(--bg);
+           border: 1px solid var(--line); border-radius: 6px; resize: vertical; }
+details { margin: 12px 0 4px; }
+details summary { cursor: pointer; color: var(--link); }
+div.inline { display: flex; flex-wrap: wrap; gap: 12px; }
+div.inline label { flex: 1 1 160px; }

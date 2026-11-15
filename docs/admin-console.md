@@ -13,7 +13,7 @@ container (`admin/`), away from the public sign-up app
 
 | Page | What it shows or does | Comes from |
 |---|---|---|
-| Invitations | create (link shown once), revoke, extend; recent sign-up failures | the sign-up app's internal API (invitations stay in its database) |
+| Invitations | create one or several (PR 17; links shown once), new link for an unused one (PR 17), revoke, extend; recent sign-up failures | the sign-up app's internal API (invitations stay in its database) |
 | Accounts | every mailbox on the mail domain: state, size, use, created, linked to Keycloak or not, deletion due | control plane `listAccounts` |
 | One account (PR 16) | state, identity, pending deletion, history; suspend, reactivate, quota, ask for a new password, schedule or cancel deletion | control plane `getAccount` and the lifecycle operations ([ADR 0021](adr/0021-account-lifecycle.md)) |
 | Message trace | why a message did or didn't arrive (read-only) | control plane `traceMessage` (PR 34) |

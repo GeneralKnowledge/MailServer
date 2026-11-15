@@ -103,8 +103,12 @@ Setup (once):
 
 - Default: single use, 7 days, 2 GB. Quota and expiry can be changed per
   invitation when creating it.
-- The link/code is shown **once** when created. If it's lost, revoke and
-  create another.
+- The link/code is shown **once** when created. If it's lost or never
+  arrived, use *New link* (PR 17): the same invitation gets a new link, shown
+  once, with a fresh expiry, and the old link stops working. It works until
+  the invitation is used or revoked.
+- *Several at once* (PR 17): one name per line, up to 50; one invitation
+  each, every link shown once on the next page. All are created or none.
 - *Extend* sets expiry to 7 days from now; it also renews an expired, unused
   invitation.
 - *Revoke* works until the invitation is used.
@@ -118,6 +122,8 @@ cd /opt/MailServer/infrastructure/registration
 sudo docker compose exec registration python -m app.cli create-invite --note "Alice" --quota 2048 --days 7
 sudo docker compose exec registration python -m app.cli list
 sudo docker compose exec registration python -m app.cli revoke 12
+sudo docker compose exec registration python -m app.cli create-invites Sam Alex Jo --days 14   # PR 17
+sudo docker compose exec registration python -m app.cli reissue 12                            # PR 17: new link
 ```
 
 ## Mailcow domain quota

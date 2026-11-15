@@ -257,3 +257,54 @@ def test_live_admin_console_sign_in_needs_password_and_one_time_code():
             uid = kc.find_user(n)
             if uid:
                 kc.delete_user(uid)
+
+
+@pytest.mark.skipif(not os.environ.get("MAIL_HOSTNAME"), reason="needs MAIL_HOSTNAME")
+def test_live_users_cannot_change_their_email_or_username(kc):
+    """PR 17: mailcow finds a Keycloak user by email (= the mailbox address), so
+    a user who could change their own email in Keycloak's account console
+    could point it at another address. Both are admin-only in the realm's
+    user profile. Signs in to the account console like a browser and tries."""
+    import base64
+    import hashlib
+    import html
+    import re
+    import secrets
+    from urllib.parse import parse_qs, urlencode, urlparse
+
+    import httpx
+
+    internal = os.environ.get("KEYCLOAK_LIVE_URL", "http://172.30.240.12:8080/auth").removesuffix("/auth")
+    pub = f"https://{os.environ['MAIL_HOSTNAME']}"
+    realm = f"{internal}/auth/realms/avedeus"
+    name = "live-" + uuid.uuid4().hex[:8]
+    uid = kc.create_user(username=name, email=f"{name}@example.test", password="Sunny-River-42x")
+    try:
+        verifier = secrets.token_urlsafe(48)
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        redirect = f"{pub}/auth/realms/avedeus/account/"
+        q = urlencode({"client_id": "account-console", "response_type": "code", "scope": "openid",
+                       "redirect_uri": redirect, "code_challenge": challenge, "code_challenge_method": "S256",
+                       "state": "s", "nonce": "n"})
+        browser = httpx.Client(follow_redirects=False)
+        login = browser.get(f"{realm}/protocol/openid-connect/auth?{q}")
+        assert login.status_code == 200, login.text[:300]
+        action = html.unescape(re.search(r'action="([^"]+)"', login.text).group(1)).replace(pub, internal)
+        back = browser.post(action, data={"username": name, "password": "Sunny-River-42x"}).headers["location"]
+        code = parse_qs(urlparse(back).query)["code"][0]
+        tok = browser.post(f"{realm}/protocol/openid-connect/token", data={
+            "grant_type": "authorization_code", "client_id": "account-console", "code": code,
+            "redirect_uri": redirect, "code_verifier": verifier}).json()["access_token"]
+        api = httpx.Client(base_url=f"{realm}/account", headers={"Authorization": f"Bearer {tok}",
+                                                                 "Accept": "application/json"})
+        me = api.get("/").json()
+        assert me["email"] == f"{name}@example.test"
+        for change in ({"email": f"other-{name}@example.test"}, {"username": f"other-{name}"}):
+            r = api.post("/", json={**me, **change})
+            assert r.status_code == 400, (change, r.status_code, r.text)
+        assert api.post("/", json={**me, "firstName": "Renamed"}).status_code == 204   # names are theirs
+        full = kc._admin("GET", f"/users/{uid}").json()
+        assert full["email"] == f"{name}@example.test" and full["username"] == name
+        assert full["firstName"] == "Renamed"
+    finally:
+        kc.delete_user(uid)

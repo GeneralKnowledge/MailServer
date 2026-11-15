@@ -37,7 +37,15 @@ file, the realm file, an nginx include and backup lines.
 - Password policy: at least 12 characters, not the username or email, not one
   of the last 3. Brute-force protection on (10 failures, growing wait, no
   permanent lockout). TOTP available to every user; the admin console's client
-  requires it at every sign-in (PR 15).
+  requires it at every sign-in (PR 15). Security keys and backup (recovery)
+  codes are set up by each person in the account console (PR 17).
+- **Users can't change their own email or username** (PR 17). mailcow finds a
+  Keycloak user by email, which is the mailbox address, so a user who could
+  edit it in the account console could point it at another address. Both are
+  admin-only in the realm's user profile; names stay editable. Checked against
+  a real Keycloak in CI (`test_live_users_cannot_change_their_email_or_username`).
+  A realm imported before PR 17 needs the same change by hand: Realm settings
+  → User profile → `email` and `username` → *Who can edit*: admin only.
 - Sessions: 30 minutes idle, 10 hours maximum. Login and admin events kept
   30 days; admin events never store request bodies.
 - Clients:

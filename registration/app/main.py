@@ -298,6 +298,48 @@ def create_app(settings: Settings | None = None, *, broker: BrokerClient | None 
         # The secret token is in this one answer only; only its hash is stored.
         return {"ok": True, "token": token, "link": f"{s.public_url}{s.base_path}/i/{token}", "invitation": public(inv)}
 
+    @app.post("/internal/v1/invitations/bulk", status_code=201)
+    def internal_bulk(request: Request, body: dict = Body(...)):
+        """PR 17: one invitation per note (who it's for), up to 50 at once.
+        All are created or none (a refused value refuses the whole list)."""
+        who = console(request)
+        if isinstance(who, JSONResponse):
+            return who
+        notes = body.get("notes")
+        if not isinstance(notes, list) or not 1 <= len(notes) <= 50 or \
+                not all(isinstance(n, str) and n.strip() for n in notes):
+            return bad("notes must be a list of 1-50 names (one invitation each)")
+        try:
+            quota = int(body.get("quota_mb") or s.default_quota_mb)
+            days = int(body.get("days") or s.invite_days)
+        except (TypeError, ValueError):
+            return bad("quota_mb and days must be numbers")
+        if not 1 <= quota <= s.max_quota_mb or not 1 <= days <= 90:
+            return bad(f"quota must be 1-{s.max_quota_mb} MB and expiry 1-90 days")
+        created = []
+        for note in notes:
+            token, inv = invites.create(quota_mb=quota, days=days, note=note[:200], ip=ip(request), by=who)
+            created.append({"token": token, "link": f"{s.public_url}{s.base_path}/i/{token}", "invitation": public(inv)})
+        return {"ok": True, "created": created}
+
+    @app.post("/internal/v1/invitations/{inv_id}/reissue")
+    def internal_reissue(request: Request, inv_id: int, body: dict = Body(default={})):
+        """PR 17 "resend": a new link (shown once); the old one stops working."""
+        who = console(request)
+        if isinstance(who, JSONResponse):
+            return who
+        try:
+            token = invites.reissue(inv_id, int((body or {}).get("days") or s.invite_days), ip(request), by=who)
+        except (TypeError, ValueError):
+            return bad("expiry must be 1-90 days")
+        if token is None:
+            inv = invites.get(inv_id)
+            if inv is None:
+                return JSONResponse({"ok": False, "kind": "not_found", "detail": ""}, 404)
+            return bad(f"invitation is {inv.status}", 409)
+        return {"ok": True, "token": token, "link": f"{s.public_url}{s.base_path}/i/{token}",
+                "invitation": public(invites.get(inv_id))}
+
     @app.post("/internal/v1/invitations/{inv_id}/revoke")
     def internal_revoke(request: Request, inv_id: int):
         who = console(request)

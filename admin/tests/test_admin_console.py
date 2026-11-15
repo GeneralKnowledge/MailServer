@@ -205,3 +205,36 @@ def test_scheduling_a_deletion_and_a_refusal_are_explained(ctx):
     ctx.client.post("/console/accounts/alice@example.com/quota", data={**form, "quota_mb": "1"})
     assert ctx.cp.calls[-1][3] == {"quota_mb": 1}
     assert "Not done: quota is below" in ctx.client.get("/console/accounts/alice@example.com").text
+
+
+# ---- PR 17: several invitations at once, and a new link ------------------------
+
+def test_bulk_invitations_show_every_link_once(ctx):
+    sign_in(ctx)
+    ctx.signup.answers[("POST", "/internal/v1/invitations/bulk")] = (201, {"ok": True, "created": [
+        {"token": f"tok{n}", "link": f"https://mx.example.com/join/i/tok{n}",
+         "invitation": {"id": n, "note": name, "expires_at": 1_800_600_000}} for n, name in ((2, "Sam"), (3, "Alex"))]})
+    csrf = csrf_of(ctx)
+    r = ctx.client.post("/console/invitations/bulk", data={"csrf": csrf, "names": " Sam \n\n Alex\n", "days": "5"})
+    assert r.status_code == 200 and "2 invitations created" in r.text
+    assert "/join/i/tok2" in r.text and "/join/i/tok3" in r.text
+    assert ctx.signup.calls[-2][3] == {"notes": ["Sam", "Alex"], "quota_mb": None, "days": 5}
+    assert "tok2" not in ctx.client.get("/console/").text
+    n = len(ctx.signup.calls)
+    assert ctx.client.post("/console/invitations/bulk", data={"csrf": csrf, "names": "  \n"}).status_code == 400
+    assert ctx.client.post("/console/invitations/bulk", data={"csrf": "x", "names": "Sam"}).status_code == 400
+    assert all(c[1] != "/internal/v1/invitations/bulk" for c in ctx.signup.calls[n:])
+
+
+def test_new_link_for_an_invitation(ctx):
+    sign_in(ctx)
+    ctx.signup.answers[("POST", "/internal/v1/invitations/1/reissue")] = (200, {
+        "ok": True, "token": "newtok", "link": "https://mx.example.com/join/i/newtok",
+        "invitation": {"id": 1, "expires_at": 1_800_600_000}})
+    csrf = csrf_of(ctx)
+    r = ctx.client.post("/console/invitations/1/reissue", data={"csrf": csrf, "days": "7"})
+    assert r.status_code == 200 and "old one no longer works" in r.text and "/join/i/newtok" in r.text
+    assert ctx.signup.calls[-2][3] == {"days": 7}
+    ctx.signup.answers[("POST", "/internal/v1/invitations/1/reissue")] = (409, {"ok": False, "detail": "invitation is redeemed"})
+    r = ctx.client.post("/console/invitations/1/reissue", data={"csrf": csrf})
+    assert r.status_code == 400 and "invitation is redeemed" in r.text
