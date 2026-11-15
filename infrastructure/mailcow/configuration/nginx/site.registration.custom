@@ -16,3 +16,15 @@ location /join/ {
     proxy_read_timeout 60s;
     client_max_body_size 64k;
 }
+
+# Invite links carry the secret token in the URL: keep them out of nginx's log.
+location /join/i/ {
+    access_log off;
+    resolver 127.0.0.11 valid=30s ipv6=off;
+    set $registration_upstream http://registration:8000;
+    proxy_pass $registration_upstream;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    client_max_body_size 64k;
+}

@@ -53,6 +53,7 @@ class Settings:
     admin_username: str
     admin_password_hash: str
     admin_totp_secret: str
+    admin_allowed_ips: str  # comma-separated IPs/CIDRs allowed to reach /admin; empty = anyone
 
     # defaults
     default_quota_mb: int
@@ -66,6 +67,7 @@ class Settings:
     rl_register_per_hour: int = 10
     rl_invite_check_per_hour: int = 30
     rl_login_per_15min: int = 5
+    rl_login_global_per_hour: int = 30  # all IPs together; stops slow distributed guessing
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -105,6 +107,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         admin_username=req("ADMIN_USERNAME"),
         admin_password_hash=req("ADMIN_PASSWORD_HASH"),
         admin_totp_secret=req("ADMIN_TOTP_SECRET"),
+        admin_allowed_ips=src.get("ADMIN_ALLOWED_IPS", ""),
         default_quota_mb=_int(src, "DEFAULT_QUOTA_MB", 2048),
         max_quota_mb=_int(src, "MAX_QUOTA_MB", 10240),
         invite_days=_int(src, "INVITE_DAYS", 7),
@@ -114,4 +117,5 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         rl_register_per_hour=_int(src, "RL_REGISTER_PER_HOUR", 10),
         rl_invite_check_per_hour=_int(src, "RL_INVITE_CHECK_PER_HOUR", 30),
         rl_login_per_15min=_int(src, "RL_LOGIN_PER_15MIN", 5),
+        rl_login_global_per_hour=_int(src, "RL_LOGIN_GLOBAL_PER_HOUR", 30),
     )

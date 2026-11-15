@@ -23,6 +23,8 @@ Nothing has been deployed yet. Branding ("Avedeus Mail") is in `branding/`.
 
 ## Contents
 
+- **[docs/setup-guide.md](docs/setup-guide.md) – start here: step-by-step setup on the Oracle server**
+
 - [docs/m0-readiness-report.md](docs/m0-readiness-report.md) – readiness report
 - [docs/m1-plan.md](docs/m1-plan.md) – M1 installation plan
 - [docs/signup-extension-evaluation.md](docs/signup-extension-evaluation.md) – MediaLab Sign-up evaluation

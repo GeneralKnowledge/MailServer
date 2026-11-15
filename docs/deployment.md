@@ -1,5 +1,7 @@
 # Deployment
 
+For a step-by-step walkthrough with avedeus.ovh, use [setup-guide.md](setup-guide.md); this page is the reference.
+
 Order: M0 inspection → M1 (this page, sections 1–4) → M2 → M3 (section 5).
 Replace `example.com` throughout with the real domain.
 

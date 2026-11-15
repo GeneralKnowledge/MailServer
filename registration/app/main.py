@@ -10,8 +10,11 @@ Health:         {base}/healthz
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import secrets
 import time
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,7 +28,8 @@ from .config import Settings, load_settings
 from .db import Database
 from .invites import Invitations
 from .mailcow import MailcowClient, MailcowError
-from .security import RateLimiter, csrf_ok, csrf_token, verify_password, verify_totp
+from .security import (RateLimiter, csrf_ok, csrf_token, ip_allowed, parse_networks, totp_step,
+                       verify_password)
 from .validation import normalise_username, password_error, username_error
 
 log = logging.getLogger("registration")
@@ -78,6 +82,11 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
         resp.headers.setdefault("Referrer-Policy", "no-referrer")  # invite tokens are in URLs
         resp.headers.setdefault("Cache-Control", "no-store")
+        resp.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+        resp.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
+        resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), interest-cohort=()")
+        if s.secure_cookies:
+            resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
         return resp
 
     r = APIRouter(prefix=s.base_path)
@@ -127,7 +136,9 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
         return show_form(request, token)
 
     @r.get("/check")
-    def check_username(request: Request, token: str = "", u: str = ""):
+    def check_username(request: Request, u: str = ""):
+        # Token comes in a header so it never appears in URLs or access logs.
+        token = request.headers.get("x-invite-token", "")
         if not rl.hit("check", ip(request), s.rl_invite_check_per_hour * 4, 3600):
             return JSONResponse({"ok": False, "message": "Too many checks. Wait a while."}, 429)
         inv = invites.find(token)
@@ -154,6 +165,8 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
             return too_many(request)
 
         name = normalise_username(username)
+        display_name = "".join(" " if ch in "\r\n\t" else ch for ch in display_name
+                               if ch in "\r\n\t" or unicodedata.category(ch)[0] != "C")
         display_name = " ".join(display_name.split())[:100]
         form = {"username": name, "display_name": display_name}
 
@@ -206,15 +219,31 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
 
     # ---- admin -------------------------------------------------------------
 
+    admin_nets = parse_networks(s.admin_allowed_ips)
+
+    @app.middleware("http")
+    async def admin_ip_gate(request: Request, call_next):
+        # Hide the admin pages entirely from addresses outside ADMIN_ALLOWED_IPS.
+        if request.url.path.startswith(f"{s.base_path}/admin") and not ip_allowed(ip(request), admin_nets):
+            return HTMLResponse("Not found", status_code=404)
+        return await call_next(request)
+
+    def _sid_hash(sid: str) -> str:
+        return hashlib.sha256(sid.encode()).hexdigest()
+
     def admin_ok(request: Request) -> bool:
-        sess = request.session
-        now = clock()
-        if sess.get("admin") != s.admin_username:
+        sid = request.session.get("admin_sid")
+        if not sid:
             return False
-        if now - sess.get("admin_at", 0) > ADMIN_SESSION_SECONDS or now - sess.get("admin_seen", 0) > ADMIN_IDLE_SECONDS:
-            sess.clear()
+        now = int(clock())
+        h = _sid_hash(sid)
+        row = db.one("SELECT * FROM admin_sessions WHERE id_hash=?", (h,))
+        if not row or now - row["created_at"] > ADMIN_SESSION_SECONDS or now - row["seen_at"] > ADMIN_IDLE_SECONDS:
+            if row:
+                db.execute("DELETE FROM admin_sessions WHERE id_hash=?", (h,))
+            request.session.clear()
             return False
-        sess["admin_seen"] = int(now)
+        db.execute("UPDATE admin_sessions SET seen_at=? WHERE id_hash=?", (now, h))
         return True
 
     def to_login():
@@ -230,22 +259,44 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
         client = ip(request)
         if not csrf_ok(request.session, csrf):
             return page(request, "admin_login.html", 400, error="Form expired; try again.")
-        if not rl.hit("login", client, s.rl_login_per_15min, 900):
+        if not rl.hit("login", client, s.rl_login_per_15min, 900) or \
+                not rl.hit("login-all", "*", s.rl_login_global_per_hour, 3600):
+            db.log("admin_login_failed", detail="rate limited", ip=client)
             return page(request, "admin_login.html", 429, error="Too many attempts. Wait 15 minutes.")
-        ok = (username == s.admin_username) & verify_password(s.admin_password_hash, password) \
-            & verify_totp(s.admin_totp_secret, code, at=clock())
-        if not ok:
-            db.log("admin_login_failed", detail=f"user={username[:50]}", ip=client)
+        user_ok = secrets.compare_digest(username.encode(), s.admin_username.encode())
+        pw_ok = verify_password(s.admin_password_hash, password)
+        step = totp_step(s.admin_totp_secret, code, at=clock())
+        last = db.one("SELECT value FROM state WHERE key='totp_last_step'")
+        replay = step is not None and last is not None and step <= int(last["value"])
+        if not (user_ok and pw_ok and step is not None) or replay:
+            db.log("admin_login_failed", detail=f"user={username[:50]}" + (" (code reused)" if replay else ""), ip=client)
             return page(request, "admin_login.html", 401, error="Wrong username, password or code.")
-        request.session.clear()
+        db.execute("INSERT INTO state(key, value) VALUES ('totp_last_step', ?) "
+                   "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(step),))
         now = int(clock())
-        request.session.update(admin=s.admin_username, admin_at=now, admin_seen=now)
+        db.execute("DELETE FROM admin_sessions WHERE created_at < ?", (now - ADMIN_SESSION_SECONDS,))
+        sid = secrets.token_urlsafe(32)
+        db.execute("INSERT INTO admin_sessions(id_hash, created_at, seen_at, ip) VALUES (?,?,?,?)",
+                   (_sid_hash(sid), now, now, client))
+        request.session.clear()  # new session: no fixation
+        request.session["admin_sid"] = sid
         db.log("admin_login", ip=client)
         return RedirectResponse(f"{s.base_path}/admin", status_code=303)
 
     @r.post("/admin/logout")
-    def admin_logout(request: Request):
-        request.session.clear()
+    def admin_logout(request: Request, csrf: str = Form("")):
+        sid = request.session.get("admin_sid")
+        if sid and csrf_ok(request.session, csrf):
+            db.execute("DELETE FROM admin_sessions WHERE id_hash=?", (_sid_hash(sid),))
+            request.session.clear()
+        return to_login()
+
+    @r.post("/admin/logout-all")
+    def admin_logout_all(request: Request, csrf: str = Form("")):
+        if admin_ok(request) and csrf_ok(request.session, csrf):
+            db.execute("DELETE FROM admin_sessions")
+            db.log("admin_logout_all", ip=ip(request))
+            request.session.clear()
         return to_login()
 
     @r.get("/admin", response_class=HTMLResponse)

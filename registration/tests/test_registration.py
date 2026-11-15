@@ -202,7 +202,7 @@ def test_registration_rate_limited(ctx):
 def test_username_check_endpoint(ctx):
     token, inv = new_invite(ctx)
     ctx.fake.mailboxes["bob@example.com"] = {"username": "bob@example.com"}
-    q = lambda u, t=token: ctx.client.get("/join/check", params={"token": t, "u": u})  # noqa: E731
+    q = lambda u, t=token: ctx.client.get("/join/check", params={"u": u}, headers={"X-Invite-Token": t})  # noqa: E731
     assert q("alice").json()["ok"] is True
     assert q("bob").json()["ok"] is False
     assert q("admin").json()["message"] == "That username is reserved."
@@ -225,3 +225,8 @@ def test_security_headers_and_health(ctx):
     assert r.headers["referrer-policy"] == "no-referrer"
     assert ctx.client.get("/join/healthz").json() == {"ok": True}
     assert ctx.client.get("/docs").status_code == 404
+
+
+def test_check_ignores_token_in_query(ctx):
+    token, _ = new_invite(ctx)
+    assert ctx.client.get("/join/check", params={"token": token, "u": "alice"}).status_code == 403

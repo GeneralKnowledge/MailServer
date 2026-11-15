@@ -26,6 +26,34 @@ apt-get -yq install git openssl curl gawk coreutils grep jq dnsutils ca-certific
   unattended-upgrades chrony zstd rclone
 dpkg-reconfigure -f noninteractive unattended-upgrades
 
+step "SSH: keys only, no root login"
+ADMIN_USER="${SUDO_USER:-ubuntu}"
+KEYS="$(getent passwd "$ADMIN_USER" | cut -d: -f6)/.ssh/authorized_keys"
+if [ -s "$KEYS" ]; then
+  cat > /etc/ssh/sshd_config.d/60-mailserver.conf <<'SSHD'
+# Written by MailServer scripts/setup.sh
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+MaxAuthTries 3
+X11Forwarding no
+AllowAgentForwarding no
+SSHD
+  sshd -t && systemctl reload ssh
+  echo "sshd hardened (key login for $ADMIN_USER confirmed present)"
+else
+  echo "SKIPPED: $KEYS is empty; not disabling password login to avoid a lock-out"
+fi
+
+step "Automatic security updates"
+cat > /etc/apt/apt.conf.d/52mailserver-unattended <<'APT'
+// Written by MailServer scripts/setup.sh
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+// Reboot for kernel updates at a quiet time (mail is queued by senders while down).
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "04:30";
+APT
+
 step "Hostname and time zone"
 hostnamectl set-hostname "$HOSTNAME_FQDN"
 timedatectl set-timezone Europe/London
@@ -77,6 +105,7 @@ cat <<NEXT
 Done. Next (see docs/deployment.md):
   cd $MAILCOW_DIR
   MAILCOW_HOSTNAME=$HOSTNAME_FQDN MAILCOW_TZ=Europe/London ./generate_config.sh
+  sudo /opt/MailServer/scripts/harden-mailcow-conf.sh
   # review mailcow.conf, then:
   docker compose pull && docker compose up -d
 NEXT

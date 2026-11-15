@@ -79,12 +79,21 @@ def totp_now(secret_b32: str, at: float | None = None) -> str:
     return _hotp(secret_b32, int((at if at is not None else time.time()) // 30))
 
 
-def verify_totp(secret_b32: str, code: str, at: float | None = None, window: int = 1) -> bool:
+def totp_step(secret_b32: str, code: str, at: float | None = None, window: int = 1) -> int | None:
+    """Return the matching 30-second step number, or None. Callers reject a
+    step that is not newer than the last accepted one (replay protection)."""
     code = (code or "").strip().replace(" ", "")
     if len(code) != 6 or not code.isdigit():
-        return False
+        return None
     t = int((at if at is not None else time.time()) // 30)
-    return any(hmac.compare_digest(_hotp(secret_b32, t + d), code) for d in range(-window, window + 1))
+    for d in range(-window, window + 1):
+        if hmac.compare_digest(_hotp(secret_b32, t + d), code):
+            return t + d
+    return None
+
+
+def verify_totp(secret_b32: str, code: str, at: float | None = None, window: int = 1) -> bool:
+    return totp_step(secret_b32, code, at, window) is not None
 
 
 def totp_uri(secret_b32: str, account: str, issuer: str = "Mail invitations") -> str:
@@ -105,3 +114,27 @@ def csrf_token(session: dict) -> str:
 def csrf_ok(session: dict, submitted: str | None) -> bool:
     expected = session.get("csrf")
     return bool(expected and submitted and hmac.compare_digest(expected, submitted))
+
+
+# ---- client IP allow-list ---------------------------------------------------
+
+def parse_networks(spec: str):
+    import ipaddress
+    nets = []
+    for part in (spec or "").split(","):
+        part = part.strip()
+        if part:
+            nets.append(ipaddress.ip_network(part, strict=False))
+    return nets
+
+
+def ip_allowed(ip: str, networks) -> bool:
+    """Empty list = everyone allowed."""
+    if not networks:
+        return True
+    import ipaddress
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(addr in n for n in networks)

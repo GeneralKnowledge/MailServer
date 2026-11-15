@@ -12,8 +12,8 @@
     status.className = "hint";
     if (input.value.length < 3) { status.textContent = "At least 3 characters."; return; }
     timer = setTimeout(function () {
-      var url = form.dataset.check + "?token=" + encodeURIComponent(token) + "&u=" + encodeURIComponent(input.value);
-      fetch(url, { credentials: "same-origin" })
+      var url = form.dataset.check + "?u=" + encodeURIComponent(input.value);
+      fetch(url, { credentials: "same-origin", headers: { "X-Invite-Token": token } })
         .then(function (r) { return r.json(); })
         .then(function (d) { status.textContent = d.message; status.className = "hint " + (d.ok ? "ok" : "bad"); })
         .catch(function () { status.textContent = ""; });

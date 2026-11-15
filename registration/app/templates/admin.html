@@ -3,7 +3,10 @@
 {% block content %}
 <div class="row">
   <h1>Invitations</h1>
-  <form method="post" action="{{ base }}/admin/logout"><button class="link">Sign out</button></form>
+  <div class="row gap">
+    <form method="post" action="{{ base }}/admin/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="link">Sign out</button></form>
+    <form method="post" action="{{ base }}/admin/logout-all"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="link">Sign out everywhere</button></form>
+  </div>
 </div>
 {% if flash %}<p class="notice">{{ flash }}</p>{% endif %}
 {% if new_invite %}
@@ -67,7 +70,7 @@
 {% else %}<p class="muted">None.</p>{% endif %}
 
 <h2>Recent admin sign-ins</h2>
-<ul class="muted">{% for l in logins %}<li>{{ l.at | ts }} · {{ l.kind | replace("admin_login_failed", "failed") | replace("admin_login", "ok") }} · {{ l.ip }}</li>{% endfor %}</ul>
+<ul class="muted">{% for l in logins %}<li>{{ l.at | ts }} · {{ l.kind | replace("admin_login_failed", "failed") | replace("admin_login", "ok") }}{% if l.detail %} ({{ l.detail }}){% endif %} · {{ l.ip }}</li>{% endfor %}</ul>
 
 <p class="muted">Mailboxes themselves (suspend, delete, passwords, quotas, aliases) are managed in the
 <a href="{{ webmail_url }}/admin">mailcow admin</a>.</p>

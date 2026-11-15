@@ -37,6 +37,21 @@ CREATE TABLE IF NOT EXISTS events (
     ip            TEXT
 );
 CREATE INDEX IF NOT EXISTS events_kind_at ON events(kind, at);
+
+-- Server-side admin sessions: the cookie only carries a random id, so signing
+-- out (or a restart of the secret) really ends a session.
+CREATE TABLE IF NOT EXISTS admin_sessions (
+    id_hash    TEXT PRIMARY KEY,                -- sha256 of the session id in the cookie
+    created_at INTEGER NOT NULL,
+    seen_at    INTEGER NOT NULL,
+    ip         TEXT
+);
+
+-- Small key/value store (e.g. last accepted TOTP step, to stop code replay).
+CREATE TABLE IF NOT EXISTS state (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
