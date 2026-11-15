@@ -114,7 +114,7 @@ jobs:
             contracts/requirements-dev.txt
       # Checks the contracts against each other and against the real broker routes.
       - run: pip install -r broker/requirements.txt -r contracts/requirements-dev.txt
-      - run: python -m pytest -q contracts infrastructure/identity
+      - run: python -m pytest -q contracts infrastructure/identity scripts/tests
 
   identity:
     name: Identity stack (Keycloak start and realm import)

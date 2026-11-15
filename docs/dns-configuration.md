@@ -45,3 +45,16 @@ Changing MX moves all incoming mail for the domain to this server. Before
 doing it: list existing addresses at the old provider, create matching
 mailboxes or aliases in mailcow (or migrate them with mailcow's Sync Jobs),
 lower the MX TTL to 300 a day ahead, then switch.
+
+## Daily check (PR 30)
+
+`scripts/delivery-check.sh` checks every record above once a day and alerts
+when something changes: MX points at the mail host, the host's A (and AAAA,
+if `PUBLIC_IPV6` is set) is this server, the PTR names the host back, there
+is exactly one SPF record ending in `-all` or `~all` that covers the server,
+the DKIM record is the key mailcow signs with (read from mailcow's Redis), and
+a DMARC record exists. It also looks the server's addresses and the mail
+domain up on Spamhaus ZEN/DBL, Barracuda, SpamCop and PSBL. Spamhaus refuses
+lookups through public resolvers: set `RESOLVER` to a resolver of your own,
+or that list shows as "couldn't check" rather than clean. Settings and cron
+line: the top of the script and the [setup guide](setup-guide.md).

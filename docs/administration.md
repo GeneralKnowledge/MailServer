@@ -18,6 +18,7 @@
 | System health | mailcow System → Status, and `scripts/health-check.sh` |
 | Mail queue | mailcow System → Queue manager |
 | Why didn't a message arrive? | Message trace (below; PR 34) |
+| DNS, blocklist or delivery-probe alert | `/var/log/mail-delivery.log`; each line names the record or list. Re-run: `sudo /opt/MailServer/scripts/delivery-check.sh` ([dns-configuration.md](dns-configuration.md#daily-check-pr-30); PR 30) |
 | Quota warnings, new-sign-in mails | [Notifications](#notifications-pr-26) |
 
 Aliases, app passwords and every other mailbox setting stay in mailcow's admin; users,
