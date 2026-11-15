@@ -5,12 +5,21 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "registration"))
+# The real provisioning broker runs in-process behind the app, with a fake
+# mailcow API behind it, so these tests also exercise the broker contract.
+sys.path.insert(0, str(ROOT / "broker"))
+sys.path.insert(0, str(ROOT / "broker" / "tests"))
 
 from app.config import load_settings  # noqa: E402
 from app.db import Database  # noqa: E402
 from app.main import create_app  # noqa: E402
-from app.mailcow import MailcowClient  # noqa: E402
+from app.provisioning import BrokerClient  # noqa: E402
+from broker.config import load_settings as load_broker_settings  # noqa: E402
+from broker.main import create_app as create_broker_app  # noqa: E402
+from broker.mailcow import MailcowClient  # noqa: E402
+from fastapi.testclient import TestClient as _TC  # noqa: E402
 from app.security import RateLimiter, hash_password, new_totp_secret, totp_now  # noqa: E402
 
 from fake_mailcow import API_KEY, FakeMailcow  # noqa: E402
@@ -19,6 +28,25 @@ ADMIN_PW = "correct horse battery staple"
 TOTP = new_totp_secret()
 _PW_HASH = hash_password(ADMIN_PW)
 GOOD_PW = "Sunny-River-42x"
+BROKER_TOKEN = "b" * 40
+
+BROKER_ENV = {
+    "MAILCOW_API_URL": "https://mail.example.com",
+    "MAILCOW_API_KEY": API_KEY,
+    "MAIL_DOMAIN": "example.com",
+    "BROKER_TOKEN": BROKER_TOKEN,
+    "BROKER_ALLOWED_CLIENTS": "*",  # TestClient has no real client IP
+    "MAX_QUOTA_MB": "10240",
+}
+
+
+def make_broker_client(fake=None, *, mailcow=None, broker_env=None, clock=None) -> BrokerClient:
+    """A BrokerClient wired to an in-process broker app (fake mailcow behind it)."""
+    bs = load_broker_settings({**BROKER_ENV, **(broker_env or {})})
+    mc = mailcow or MailcowClient(bs.mailcow_api_url, bs.mailcow_api_key, transport=fake.transport())
+    kw = {"clock": clock} if clock else {}
+    broker_app = create_broker_app(bs, mailcow=mc, **kw)
+    return BrokerClient("http://broker", BROKER_TOKEN, transport=_TC(broker_app)._transport)
 
 
 class Clock:
@@ -35,8 +63,8 @@ class Clock:
 @pytest.fixture
 def env():
     return {
-        "MAILCOW_API_URL": "https://mail.example.com",
-        "MAILCOW_API_KEY": API_KEY,
+        "BROKER_URL": "http://broker",
+        "BROKER_TOKEN": BROKER_TOKEN,
         "MAIL_DOMAIN": "example.com",
         "SESSION_SECRET": "x" * 40,
         "ADMIN_USERNAME": "boss",
@@ -44,6 +72,7 @@ def env():
         "ADMIN_TOTP_SECRET": TOTP,
         "DATABASE_PATH": ":memory:",
         "BRAND_NAME": "Test Mail",
+        "ADMIN_ALLOW_ANY": "1",
     }
 
 
@@ -52,9 +81,9 @@ def ctx(env):
     clock = Clock()
     settings = load_settings(env)
     fake = FakeMailcow()
-    mc = MailcowClient(settings.mailcow_api_url, settings.mailcow_api_key, transport=fake.transport())
     db = Database(":memory:", clock=clock)
-    app = create_app(settings, mailcow=mc, db=db, limiter=RateLimiter(clock=clock), clock=clock)
+    app = create_app(settings, broker=make_broker_client(fake, clock=clock), db=db,
+                     limiter=RateLimiter(clock=clock), clock=clock)
     client = TestClient(app, base_url="https://mail.example.com")
 
     class Ctx:

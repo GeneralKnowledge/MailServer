@@ -6,7 +6,6 @@ from conftest import ADMIN_PW, TOTP, admin_login, csrf_of, register
 from app.config import load_settings
 from app.db import Database
 from app.main import create_app
-from app.mailcow import MailcowClient
 from app.security import RateLimiter, totp_now
 
 
@@ -67,11 +66,11 @@ def test_global_login_limit(ctx):
 
 
 def _app_with(env, **extra):
+    from conftest import make_broker_client
     from fake_mailcow import FakeMailcow
     settings = load_settings({**env, **extra})
-    fake = FakeMailcow()
-    mc = MailcowClient(settings.mailcow_api_url, settings.mailcow_api_key, transport=fake.transport())
-    return create_app(settings, mailcow=mc, db=Database(":memory:"), limiter=RateLimiter())
+    return create_app(settings, broker=make_broker_client(FakeMailcow()), db=Database(":memory:"),
+                      limiter=RateLimiter())
 
 
 def test_admin_ip_allow_list(env):

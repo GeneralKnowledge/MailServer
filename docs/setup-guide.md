@@ -130,11 +130,12 @@ sudo MAILCOW_HOSTNAME=mail.avedeus.ovh MAILCOW_TZ=Europe/London ./generate_confi
 sudo /opt/MailServer/scripts/harden-mailcow-conf.sh
 ```
 
-Then set the API key that the invite site will use (mailcow reads it at start):
+Then set the API key that the provisioning broker will use (mailcow reads it at start).
+Only the broker container, at `172.30.240.11`, may use it:
 
 ```sh
 KEY=$(openssl rand -hex 32); echo "Save this API key: $KEY"
-sudo sed -i "s|^#\?API_KEY=.*|API_KEY=$KEY|; s|^#\?API_ALLOW_FROM=.*|API_ALLOW_FROM=172.22.1.240|" mailcow.conf
+sudo sed -i "s|^#\?API_KEY=.*|API_KEY=$KEY|; s|^#\?API_ALLOW_FROM=.*|API_ALLOW_FROM=172.30.240.11|" mailcow.conf
 grep -E '^(MAILCOW_HOSTNAME|API_ALLOW_FROM|IMAP_PORT|POP_PORT|POPS_PORT|ENABLE_IPV6|SKIP_CLAMD)=' mailcow.conf
 ```
 
@@ -158,10 +159,11 @@ At `https://mail.avedeus.ovh/admin` (user `admin`, password `moohoo`):
 3. *System → Configuration → Options → Password policy*: length 12, require
    lowercase, uppercase and numbers.
 4. *System → Configuration → Access → API*: confirm the read-write key shows
-   `172.22.1.240` only, and the read-only key is off.
+   `172.30.240.11` only (the broker), and the read-only key is off.
 
 **Check B:** `sudo /opt/MailServer/scripts/health-check.sh` ends with `HEALTHY`
-(the registration line fails until Part D; ignore it). The padlock on
+(the registration line fails until Part D and the backup lines until Part E;
+ignore those). The padlock on
 `https://mail.avedeus.ovh` shows a Let's Encrypt certificate.
 
 ---
@@ -222,20 +224,28 @@ and set it on the avedeus.ovh domain. Add the relay's `include:` to SPF.
 
 ```sh
 cd /opt/MailServer/infrastructure/registration
-sudo cp .env.example .env && sudo chmod 600 .env
+sudo cp .env.example .env && sudo cp broker.env.example broker.env && sudo chmod 600 .env broker.env
+openssl rand -hex 32                                                        # BROKER_TOKEN: same value in both files
 sudo docker compose build
 sudo docker compose run --rm registration python -m app.cli hash-password   # paste result as ADMIN_PASSWORD_HASH='…'
 sudo docker compose run --rm registration python -m app.cli new-totp       # ADMIN_TOTP_SECRET; scan the otpauth URI
 openssl rand -base64 48                                                     # SESSION_SECRET
-sudo nano .env
+sudo nano broker.env .env
 ```
 
-In `.env`: `MAILCOW_API_KEY` = the key from B3; `ADMIN_USERNAME` = a name of
-your choice; wrap the password hash in single quotes. Optional but
-recommended: `ADMIN_ALLOWED_IPS=<your home IP>` so the admin page is invisible
-to everyone else (it returns 404).
+In `broker.env`: `MAILCOW_API_KEY` = the key from B3, and `BROKER_TOKEN`.
+This is the only place the key goes; the registration app refuses to start
+if it finds `MAILCOW_API_KEY` in its own `.env`.
+
+In `.env`: the same `BROKER_TOKEN`; `ADMIN_USERNAME` = a name of
+your choice; wrap the password hash in single quotes;
+`ADMIN_ALLOWED_IPS=<your home IP or VPN range>` so the admin page is invisible
+to everyone else (it returns 404). The app refuses to start without it unless
+you set `ADMIN_ALLOW_ANY=1`; if your home IP changes, update it here and run
+`docker compose up -d`, and use `python -m app.cli` over SSH meanwhile.
 
 ```sh
+sudo /opt/MailServer/scripts/create-edge-network.sh   # avedeus-edge, must exist before mailcow restarts
 sudo /opt/MailServer/scripts/apply-branding.sh
 sudo cp /opt/MailServer/infrastructure/mailcow/configuration/nginx/site.registration.custom \
         /opt/mailcow-dockerized/data/conf/nginx/
@@ -254,7 +264,7 @@ Then:
 5. Revoke an unused invitation and try it: must say withdrawn.
 6. The real-API checks in [registration/README.md](../registration/README.md#real-api-check-m3-on-the-server).
 
-**Check D:** health check `HEALTHY` including the registration line; the
+**Check D:** health check `HEALTHY` apart from the backup lines; the
 Avedeus logo and plum colours on the login page and in webmail, light and dark.
 
 ---
@@ -274,18 +284,39 @@ Avedeus logo and plum colours on the login page and in webmail, light and dark.
    echo '*/15 * * * * root /opt/MailServer/scripts/health-check.sh >/var/log/mail-health.log 2>&1' | sudo tee /etc/cron.d/mail-health
    sudo /opt/MailServer/scripts/backup.sh
    ```
-4. **Restore test** (required before calling it done): follow
+4. **Alerts.** Install the [ntfy](https://ntfy.sh) app on your phone and
+   subscribe to a long random topic name. At [healthchecks.io](https://healthchecks.io)
+   (free) create two checks: *backup* (period 1 day, grace 2 h) and *health*
+   (period 15 min, grace 30 min), each alerting to your personal email. Then:
+   ```sh
+   sudo tee /etc/mailserver/alerts.env >/dev/null <<'CONF'
+   NTFY_URL=https://ntfy.sh/<your-long-random-topic>
+   ALERT_EMAIL=<your personal address, not @avedeus.ovh>
+   HC_BACKUP_URL=https://hc-ping.com/<backup check uuid>
+   HC_HEALTH_URL=https://hc-ping.com/<health check uuid>
+   CONF
+   sudo chmod 600 /etc/mailserver/alerts.env
+   sudo /opt/MailServer/scripts/health-check.sh   # sends one alert now if anything is wrong
+   ```
+   The health check alerts once when a problem appears and once when it
+   clears. healthchecks.io emails you if a backup or health run fails or
+   simply doesn't happen (server down, cron broken). None of the alerts go
+   through this mail server.
+5. **Restore test** (required before calling it done): follow
    [backup-and-recovery.md](backup-and-recovery.md#restore-same-or-new-server),
    ideally onto a second temporary VM, and record the result in its table.
 
-**Check E:** a dated folder appears on the remote; the restore test row is filled in.
+**Check E:** a dated folder appears on the remote; both healthchecks.io
+checks are green; `docker stop sogo-mailcow` → one push alert within 15
+minutes, `docker start` → one "all clear"; the restore test row is filled in.
 
 ---
 
 ## Part F — Go-live checklist
 
 - [ ] mailcow admin: password changed, TOTP on
-- [ ] Invite admin: TOTP set, `ADMIN_ALLOWED_IPS` set (or a conscious choice not to)
+- [ ] Invite admin: TOTP set, `ADMIN_ALLOWED_IPS` set (or `ADMIN_ALLOW_ANY=1` as a conscious choice)
+- [ ] `setup.sh` printed "sshd hardened and verified"
 - [ ] SSH: key-only, port 22 limited to your IP in the security list
 - [ ] Only the ports in A3 are open (check from outside: `nc -zv mail.avedeus.ovh 143` must fail)
 - [ ] PTR shows `mail.avedeus.ovh` (`dig -x <IP> +short`)

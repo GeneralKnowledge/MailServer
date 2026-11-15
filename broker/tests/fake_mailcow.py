@@ -18,6 +18,7 @@ class FakeMailcow:
         self.calls: list[tuple[str, str]] = []
         self.fail_next_add: str | None = None  # None | "timeout" | "timeout_after_create" | "http500" | "danger"
         self.down = False
+        self.on_add = None  # optional callable, run when add/mailbox is called (simulates slow requests)
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -34,12 +35,16 @@ class FakeMailcow:
             addr = path.rsplit("/", 1)[1].lower()
             mb = self.mailboxes.get(addr)
             return httpx.Response(200, json=mb or {})
+        if request.method == "GET" and path == "/api/v1/get/status/version":
+            return httpx.Response(200, json={"version": "2026-11"})
         if request.method == "GET" and path == "/api/v1/get/alias/all":
             return httpx.Response(200, json=[{"id": n, "address": a, "goto": "x@y"} for n, a in enumerate(self.aliases)])
         if request.method == "POST" and path == "/api/v1/add/mailbox":
             body = json.loads(request.content)
             addr = f"{body['local_part']}@{body['domain']}".lower()
             mode, self.fail_next_add = self.fail_next_add, None
+            if self.on_add:
+                self.on_add()
             if mode == "timeout":
                 raise httpx.ReadTimeout("timed out", request=request)
             if mode == "http500":

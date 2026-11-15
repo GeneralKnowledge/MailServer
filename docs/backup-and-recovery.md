@@ -2,7 +2,7 @@
 
 ## What is backed up
 
-`scripts/backup.sh` runs daily and produces `/var/backups/mailcow/mailcow-<date>/`:
+`scripts/backup.sh` runs daily and produces `/var/backups/mailserver/mailcow/mailcow-<date>/`:
 
 | Content | File |
 |---|---|
@@ -13,26 +13,43 @@
 | Rspamd, Postfix data | `backup_rspamd.tar.zst`, `backup_postfix.tar.zst` |
 | mailcow.conf | `mailcow.conf` |
 | Invitation database | `extras/registration.sqlite3` |
-| Registration `.env` (secrets) | `extras/registration.env` |
+| Registration `.env` and broker `broker.env` (secrets, incl. the mailcow API key) | `extras/registration.env`, `extras/broker.env` |
 | nginx custom site, SOGo branding, TLS certs | `extras/mailcow-custom.tgz` |
 | Checksums | `SHA256SUMS` |
 
 The mailcow parts come from mailcow's official
 `helper-scripts/backup_and_restore.sh`.
 
+Permissions: mailcow's helper insists that its backup folder is writable by
+everyone and writes archives readable by everyone. The scripts therefore keep
+everything under `/var/backups/mailserver` (mode 700, root only) and lock each
+new backup folder to root after the helper finishes. Downloads for a restore go
+to `/var/backups/mailserver/restore`, also root only.
+
 ## Schedule and retention
 
 - Daily at 03:15 (cron line in `scripts/backup.sh`).
 - 3 days kept on the server, 30 days off-site (`/etc/mailserver/backup.env`).
 - Verification each run: every archive is tested with `zstd -t`, required
-  files must exist, the SQLite copy must pass `integrity_check`, and the
-  upload is checked with `rclone check`. Failure → non-zero exit, nothing
+  files must exist (including the invitation database, its `.env` and
+  `mailcow-custom.tgz`), the SQLite copy must pass `integrity_check`, and the
+  upload is checked with `rclone cryptcheck`. Failure → non-zero exit, nothing
   uploaded, logged in `/var/log/mail-backup.log`.
+- Alerts: a failed run sends a push alert (ntfy) and pings healthchecks.io's
+  `/fail`; a run that never happens is caught by healthchecks.io's schedule.
+  Each successful run writes `/var/backups/mailserver/last-success`, and
+  `health-check.sh` reports a problem when it is older than 26 hours.
+- If the registration container isn't running, the backup **fails** rather
+  than quietly leaving out the invitations. On a server without the
+  registration app, set `SKIP_REGISTRATION=1` in `backup.env`.
 
 ## Off-site storage
 
-Any rclone backend; use an rclone **crypt** remote on top so the provider
-can't read mail. Candidates: OCI Object Storage in another region (S3 API),
+Any rclone backend, with an rclone **crypt** remote on top so the provider
+can't read mail. `backup.sh` refuses to upload to a remote that isn't a crypt
+remote, because a backup holds every message, the DKIM and mail-crypt keys,
+the mailcow API key and the admin TOTP secret. (`ALLOW_PLAIN_REMOTE=1`
+overrides this; don't.) Candidates: OCI Object Storage in another region (S3 API),
 Backblaze B2, Hetzner Storage Box. To be chosen in M4.
 
 ```sh
@@ -60,14 +77,17 @@ your password manager. Without it the off-site backups can't be decrypted.
    The `mailcow` step fills in `DOCKER_COMPOSE_VERSION` if `generate_config.sh`
    left it empty (mailcow's restore refuses to run otherwise), and afterwards
    re-runs `docker compose up -d`, because mailcow's helper restarts mailcow
-   without `docker-compose.override.yml`.
+   without `docker-compose.override.yml`. `fetch` stops with an error if any
+   checksum doesn't match; don't restore from that folder.
 3. Unpack `extras/mailcow-custom.tgz` over `/opt/mailcow-dockerized` if the
    nginx/SOGo customisations, the login-page stylesheet or
    `docker-compose.override.yml` are missing; then `docker compose up -d`.
    (The login-page logos and names are in Redis, which the mailcow restore
    brings back.)
 4. Registration: `sudo /opt/MailServer/scripts/restore.sh registration mailcow-YYYY-…`
-   (works on an empty volume too; it creates the container if needed).
+   (works on an empty volume too; it creates the container if needed). The
+   database it replaces is saved first as
+   `/var/backups/mailserver/restore/registration-before-restore-<time>.sqlite3`.
 5. Run `scripts/health-check.sh` and the checks in
    [email-testing.md](email-testing.md).
 

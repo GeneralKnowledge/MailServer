@@ -1,7 +1,7 @@
 """Minimal client for the mailcow REST API (/api/v1).
 
-Only three calls are used: look up a mailbox, list aliases, add a mailbox.
-The API key stays on the server; it is never sent to browsers.
+Used only by the provisioning broker, the one component that holds the key.
+Calls: version check, look up a mailbox, list aliases, add a mailbox.
 """
 
 from __future__ import annotations
@@ -30,7 +30,8 @@ class MailcowClient:
     api_key: str
     tls_hostname: str | None = None  # when base_url is the internal nginx-mailcow container
     verify_tls: bool = True
-    timeout: float = 20.0
+    # A sign-up makes up to four calls; 4 x 10 s stays inside nginx's 60 s proxy timeout.
+    timeout: float = 10.0
     transport: httpx.BaseTransport | None = None  # injected in tests
 
     def _client(self) -> httpx.Client:
@@ -38,7 +39,7 @@ class MailcowClient:
         if self.tls_hostname:
             headers["Host"] = self.tls_hostname
         return httpx.Client(
-            base_url=self.base_url, headers=headers, timeout=self.timeout,
+            base_url=self.base_url, headers=headers, timeout=httpx.Timeout(self.timeout, connect=5.0),
             verify=self.verify_tls, transport=self.transport, follow_redirects=False,
         )
 
@@ -65,6 +66,13 @@ class MailcowClient:
             raise MailcowError("unavailable", f"non-JSON response: {r.text[:300]}") from e
 
     # ---- reads -----------------------------------------------------------
+
+    def version(self) -> str:
+        """Cheap authenticated call, used to check the key and allow-list work."""
+        data = self._request("GET", "/api/v1/get/status/version")
+        if isinstance(data, dict) and data.get("version"):
+            return str(data["version"])
+        raise MailcowError("unavailable", f"unexpected response: {str(data)[:300]}")
 
     def mailbox_exists(self, address: str) -> bool:
         data = self._request("GET", f"/api/v1/get/mailbox/{quote(address, safe='@')}")

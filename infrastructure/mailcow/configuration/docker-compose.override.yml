@@ -1,6 +1,7 @@
 # Copy to /opt/mailcow-dockerized/docker-compose.override.yml (merge by hand if
 # one already exists). mailcow keeps this file out of git, so updates leave it.
-# Then: docker compose up -d sogo-mailcow
+# Needs the avedeus-edge network first: /opt/MailServer/scripts/create-edge-network.sh
+# Then: docker compose up -d
 services:
   sogo-mailcow:
     volumes:
@@ -8,3 +9,14 @@ services:
       # palette in custom-theme.js. Replace it with an empty file written by
       # scripts/apply-branding.sh.
       - ./data/conf/sogo/custom-theme-default.css:/usr/local/lib/GNUstep/SOGo/WebServerResources/css/theme-default.css:z
+
+  nginx-mailcow:
+    # Also join avedeus-edge, where the invite site (and broker) live. nginx
+    # keeps mailcow-network; the services listed here are merged with it.
+    networks:
+      avedeus-edge:
+        ipv4_address: 172.30.240.2
+
+networks:
+  avedeus-edge:
+    external: true

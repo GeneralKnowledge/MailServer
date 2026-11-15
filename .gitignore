@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 infrastructure/registration/.env
+infrastructure/registration/broker.env
 *.sqlite3*
 m0-report-*.txt
 # Local, per-machine compose overrides

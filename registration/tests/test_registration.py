@@ -93,18 +93,19 @@ def test_race_where_mailcow_reports_exists(ctx):
             ctx.fake.mailboxes["alice@example.com"] = {"username": "alice@example.com"}
         return orig(req)
     import httpx
-    from app.mailcow import MailcowClient
+    from broker.mailcow import MailcowClient
+    from conftest import make_broker_client
     mc = MailcowClient("https://mail.example.com", "test-api-key", transport=httpx.MockTransport(racing))
-    r = _register_with_client(ctx, mc, token)
+    r = _register_with_client(ctx, make_broker_client(mailcow=mc), token)
     assert r.status_code == 409 and "taken" in r.text
     assert ctx.invites.get(inv.id).status == "valid"
 
 
-def _register_with_client(ctx, mc, token):
+def _register_with_client(ctx, broker, token):
     from fastapi.testclient import TestClient
     from app.main import create_app
     from app.security import RateLimiter
-    app = create_app(ctx.settings, mailcow=mc, db=ctx.db, limiter=RateLimiter(clock=ctx.clock), clock=ctx.clock)
+    app = create_app(ctx.settings, broker=broker, db=ctx.db, limiter=RateLimiter(clock=ctx.clock), clock=ctx.clock)
     ctx.client = TestClient(app, base_url="https://mail.example.com")
     return register(ctx, token)
 
@@ -168,10 +169,11 @@ def test_timeout_after_create_is_recognised(ctx):
 
 
 def test_bad_api_key_is_a_failure_not_a_consumed_invite(ctx, env):
-    from app.mailcow import MailcowClient
+    from broker.mailcow import MailcowClient
+    from conftest import make_broker_client
     token, inv = new_invite(ctx)
     mc = MailcowClient("https://mail.example.com", "wrong", transport=ctx.fake.transport())
-    r = _register_with_client(ctx, mc, token)
+    r = _register_with_client(ctx, make_broker_client(mailcow=mc), token)
     assert r.status_code == 503 and ctx.invites.get(inv.id).status == "valid"
     assert "auth" in ctx.db.one("SELECT detail FROM events WHERE kind='provision_failed'")["detail"]
 

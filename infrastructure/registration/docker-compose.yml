@@ -1,10 +1,13 @@
-# Invite registration app, deployed separately from mailcow.
-# It joins mailcow's Docker network so that:
-#   * mailcow's nginx can proxy https://mail.<domain>/join/ to it, and
-#   * it can reach the mailcow API at nginx-mailcow without leaving the host.
-# mailcow updates don't touch this project.
-name: registration
-
+# Invite registration app and provisioning broker, deployed separately from mailcow.
+# Both sit on the small internal avedeus-edge network (scripts/create-edge-network.sh),
+# which mailcow's nginx also joins (see the mailcow docker-compose.override.yml):
+#   * mailcow's nginx proxies https://mail.<domain>/join/ to the registration app,
+#   * the app asks the broker to check addresses and create mailboxes, and
+#   * the broker, the only holder of the mailcow API key, calls the API
+#     through nginx-mailcow. The key is allow-listed to the broker's address.
+# Neither is on mailcow's own network: Postfix trusts every address there to
+# send mail without a password. On avedeus-edge they have no route to the
+# internet either. mailcow updates don't touch this project.
 services:
   registration:
     build: ../../registration
@@ -14,10 +17,9 @@ services:
     volumes:
       - registration-data:/data
     networks:
-      mailcow:
-        # Fixed address, so the mailcow API key can be allow-listed to it.
-        # mailcow itself uses .248-.254 for fixed addresses.
-        ipv4_address: ${IPV4_NETWORK:-172.22.1}.240
+      edge:
+        # Fixed address: the broker only accepts calls from it.
+        ipv4_address: 172.30.240.10
         aliases: [registration]
     read_only: true
     tmpfs: [/tmp]
@@ -28,11 +30,33 @@ services:
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }
+    depends_on: [broker]
+
+  broker:
+    build: ../../broker
+    image: mailserver-broker:local
+    env_file: broker.env   # holds the mailcow API key; the registration app never reads it
+    restart: unless-stopped
+    networks:
+      edge:
+        # Fixed address: mailcow's API_ALLOW_FROM lists only this one.
+        ipv4_address: 172.30.240.11
+        aliases: [broker]
+    # No ports published: reachable only on avedeus-edge.
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 50
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
 
 volumes:
   registration-data:
 
 networks:
-  mailcow:
+  edge:
     external: true
-    name: mailcowdockerized_mailcow-network
+    name: avedeus-edge

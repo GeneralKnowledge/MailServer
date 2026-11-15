@@ -6,6 +6,8 @@
 # interactive and are done by hand following docs/deployment.md.
 #
 # Usage: sudo scripts/setup.sh mail.example.com [mailcow-tag]
+#        Without a tag, the newest mailcow release tag is checked out (never
+#        the moving master branch).
 set -euo pipefail
 
 HOSTNAME_FQDN="${1:?usage: setup.sh mail.example.com [mailcow-tag]}"
@@ -30,8 +32,12 @@ step "SSH: keys only, no root login"
 ADMIN_USER="${SUDO_USER:-ubuntu}"
 KEYS="$(getent passwd "$ADMIN_USER" | cut -d: -f6)/.ssh/authorized_keys"
 if [ -s "$KEYS" ]; then
-  cat > /etc/ssh/sshd_config.d/60-mailserver.conf <<'SSHD'
-# Written by MailServer scripts/setup.sh
+  # sshd keeps the FIRST value it reads for each setting, and reads
+  # sshd_config.d/*.conf in name order, so this file must sort first (01-)
+  # or an image's own 50-cloud-init.conf could override it.
+  rm -f /etc/ssh/sshd_config.d/60-mailserver.conf   # older location
+  cat > /etc/ssh/sshd_config.d/01-mailserver.conf <<'SSHD'
+# Written by MailServer scripts/setup.sh (kept first so it wins)
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin no
@@ -40,7 +46,12 @@ X11Forwarding no
 AllowAgentForwarding no
 SSHD
   sshd -t && systemctl reload ssh
-  echo "sshd hardened (key login for $ADMIN_USER confirmed present)"
+  # Check the settings sshd actually uses, not just what we wrote.
+  effective="$(sshd -T -C user="$ADMIN_USER",host=localhost,addr=127.0.0.1 2>/dev/null)"
+  for want in "passwordauthentication no" "kbdinteractiveauthentication no" "permitrootlogin no" "maxauthtries 3"; do
+    echo "$effective" | grep -qx "$want" || { echo "ERROR: sshd is not using '$want'; check /etc/ssh/sshd_config.d/" >&2; exit 1; }
+  done
+  echo "sshd hardened and verified (key login for $ADMIN_USER confirmed present)"
 else
   echo "SKIPPED: $KEYS is empty; not disabling password login to avoid a lock-out"
 fi
@@ -91,13 +102,22 @@ iptables -S INPUT | head -20
 
 step "mailcow checkout"
 umask 0022
+fresh=0
 if [ ! -d "$MAILCOW_DIR/.git" ]; then
   git clone https://github.com/mailcow/mailcow-dockerized "$MAILCOW_DIR"
+  fresh=1
 fi
 cd "$MAILCOW_DIR"
-if [ -n "$MAILCOW_TAG" ]; then
-  git fetch --tags -q && git -c advice.detachedHead=false checkout "$MAILCOW_TAG"
+git fetch --tags -q
+if [ -z "$MAILCOW_TAG" ] && [ "$fresh" = 0 ]; then
+  echo "Existing mailcow checkout left as it is (update with mailcow's own update.sh)"
+elif [ -z "$MAILCOW_TAG" ]; then
+  # mailcow tags releases by date (e.g. 2025-10a); take the newest one.
+  MAILCOW_TAG="$(git tag --list '20*' --sort=-creatordate | head -1)"
+  [ -n "$MAILCOW_TAG" ] || { echo "ERROR: no mailcow release tags found; pass one explicitly" >&2; exit 1; }
+  echo "Using newest mailcow release: $MAILCOW_TAG"
 fi
+[ -z "$MAILCOW_TAG" ] || git -c advice.detachedHead=false checkout -q "$MAILCOW_TAG"
 git log -1 --format='mailcow at %h (%cd)' --date=short
 
 cat <<NEXT

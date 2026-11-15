@@ -158,12 +158,17 @@ if [ -d "$MAILCOW_DIR/data/conf/sogo" ]; then
   # mailcow login page: logos and names live in Redis (what System > Configuration >
   # Options > Customize writes).
   if docker compose ps --status running --services 2>/dev/null | grep -qx redis-mailcow; then
-    REDISPASS="$(sed -n 's/^REDISPASS=//p' mailcow.conf)"
-    rcli() { docker compose exec -T redis-mailcow redis-cli ${REDISPASS:+-a "$REDISPASS" --no-auth-warning} "$@" >/dev/null; }
-    rcli SET MAIN_LOGO "data:image/svg+xml;base64,$(base64 -w0 "$ROOT/branding/logo-full.svg")"
-    rcli SET MAIN_LOGO_DARK "data:image/svg+xml;base64,$(base64 -w0 "$ROOT/branding/logo-full-dark.svg")"
-    rcli SET TITLE_NAME "$BRAND_NAME"
-    rcli SET MAIN_NAME "$BRAND_NAME"
+    # rset KEY < value. The Redis password is taken from the container's own
+    # REDISPASS and the value comes on stdin, so neither shows up in `ps` on
+    # the host (redis-cli -a would put the password on the command line).
+    rset() {
+      docker compose exec -T redis-mailcow sh -c \
+        '[ -z "$REDISPASS" ] || export REDISCLI_AUTH="$REDISPASS"; exec redis-cli -x SET "$1"' sh "$1" >/dev/null
+    }
+    printf '%s' "data:image/svg+xml;base64,$(base64 -w0 "$ROOT/branding/logo-full.svg")" | rset MAIN_LOGO
+    printf '%s' "data:image/svg+xml;base64,$(base64 -w0 "$ROOT/branding/logo-full-dark.svg")" | rset MAIN_LOGO_DARK
+    printf '%s' "$BRAND_NAME" | rset TITLE_NAME
+    printf '%s' "$BRAND_NAME" | rset MAIN_NAME
     echo "mailcow UI: logos and names set"
   else
     echo "mailcow UI: redis-mailcow not running, logos and names not set (re-run once mailcow is up)"
