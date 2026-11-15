@@ -127,6 +127,11 @@ if [ "$IDENTITY_ENABLED" = 1 ]; then
     echo "  FAILED Keycloak database backup (is the identity postgres container running?)"; fail=1; }
   cp -a "$REPO_DIR/infrastructure/identity/identity.env" "$latest/extras/identity.env" \
     || { echo "  FAILED copying infrastructure/identity/identity.env"; fail=1; }
+  # The portal (PR 14) has no data, only its env file (client secret, control-plane token).
+  if [ -f "$REPO_DIR/infrastructure/registration/portal.env" ]; then
+    cp -a "$REPO_DIR/infrastructure/registration/portal.env" "$latest/extras/portal.env" \
+      || { echo "  FAILED copying infrastructure/registration/portal.env"; fail=1; }
+  fi
 fi
 # Our customisations inside mailcow (nginx site, SOGo theme/logos, login page
 # stylesheet, compose override) and mailcow.conf. Optional files are only
