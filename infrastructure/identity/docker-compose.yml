@@ -1,0 +1,105 @@
+# Keycloak (the one browser identity, ADR 0006) and its own Postgres.
+#
+# NOT DEPLOYED until the ADR 0006 validation gate passes:
+#   docs/adr/0006-keycloak-identity-provider.md#validation-gate-before-deployment-added-2026-11-15
+# Until then this file is code only: it is checked in CI (config tests and a
+# start-and-import smoke test) but nothing starts it on the server.
+#
+# Layout:
+#   * keycloak sits on avedeus-edge at a fixed address, so mailcow's nginx can
+#     proxy https://<mail host>/auth/ to it (nginx/site.identity.custom). No
+#     ports are published.
+#   * postgres sits only on identity-db, an internal network with no route out
+#     and no other members: Keycloak's database is its own (ADR 0007).
+#   * Mail clients never authenticate here: they use mailcow app passwords
+#     (ADR 0015). Keycloak is for browser sign-in only.
+#
+# Memory: Keycloak's JVM heap is capped well under its container limit so
+# non-heap memory (metaspace, threads, buffers) fits. Measure on the target
+# box before changing either (gate condition 2).
+services:
+  postgres:
+    image: postgres:17.12-alpine
+    env_file: identity.env
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      # POSTGRES_PASSWORD comes from identity.env (KC_DB_PASSWORD there too).
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    restart: unless-stopped
+    volumes:
+      - identity-db-data:/var/lib/postgresql/data
+    networks:
+      - identity-db
+    # No ports published; only Keycloak can reach it.
+    shm_size: 64m
+    mem_limit: 256m
+    pids_limit: 100
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  keycloak:
+    image: keycloak/keycloak:26.8.2
+    env_file: identity.env
+    command: ["start", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      # KC_DB_PASSWORD, KC_HOSTNAME and the bootstrap admin come from identity.env.
+      KC_HTTP_ENABLED: "true"             # TLS ends at mailcow's nginx
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"           # on the management port (9000), never proxied
+      KC_METRICS_ENABLED: "false"         # PR 27 (metrics) is deferred
+      KC_LOG_LEVEL: info
+      # Heap capped at 512 MB; idle use measured at ~670 MB on x86 in testing, so the 1 GB limit leaves headroom.
+      JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx512m"
+    restart: unless-stopped
+    volumes:
+      # Realm, clients and groups as code. Imported only if the realm does not
+      # exist yet; later changes go through the admin API or a re-import.
+      - ./realm:/opt/keycloak/data/import:ro
+    networks:
+      identity-db: {}
+      edge:
+        # Fixed address, like the broker (.11) and registration app (.10).
+        ipv4_address: 172.30.240.12
+        aliases: [keycloak]
+    # No ports published: reachable only through mailcow's nginx on avedeus-edge.
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1g
+    pids_limit: 300
+    healthcheck:
+      # The image has no curl; bash's /dev/tcp is enough to read /health/ready.
+      # Ready only on HTTP 200 (503 while it bootstraps or a check is down).
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /auth/health/ready HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && head -n 1 <&3 | grep -q ' 200 '"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+volumes:
+  identity-db-data:
+
+networks:
+  identity-db:
+    internal: true   # no route out; Postgres talks to Keycloak and nothing else
+  edge:
+    external: true
+    name: avedeus-edge

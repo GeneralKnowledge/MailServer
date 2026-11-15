@@ -8,6 +8,7 @@
 #   RCLONE_REMOTE=offsite-crypt:mailserver     # must be an rclone *crypt* remote (encrypted)
 #   ALLOW_PLAIN_REMOTE=0                       # 1 = allow a non-crypt remote (not recommended)
 #   SKIP_REGISTRATION=0                        # 1 = this server doesn't run the registration app
+#   IDENTITY_ENABLED=0                         # 1 = this server runs Keycloak (only after the ADR 0006 gate)
 #   LOCAL_KEEP_DAYS=3
 #   REMOTE_KEEP_DAYS=30
 # Alerts: /etc/mailserver/alerts.env (see scripts/lib/alerts.sh). A failed run
@@ -27,6 +28,8 @@ REMOTE_KEEP_DAYS="${REMOTE_KEEP_DAYS:-30}"
 RCLONE_REMOTE="${RCLONE_REMOTE:-}"
 ALLOW_PLAIN_REMOTE="${ALLOW_PLAIN_REMOTE:-0}"
 SKIP_REGISTRATION="${SKIP_REGISTRATION:-0}"
+IDENTITY_ENABLED="${IDENTITY_ENABLED:-0}"
+ID_COMPOSE="$REPO_DIR/infrastructure/identity/docker-compose.yml"
 REG_COMPOSE="$REPO_DIR/infrastructure/registration/docker-compose.yml"
 log() { echo "$(date -u +%FT%TZ) $*"; }
 # shellcheck source=lib/alerts.sh
@@ -115,6 +118,16 @@ if [ "$SKIP_REGISTRATION" != 1 ]; then
   cp -a "$REPO_DIR/infrastructure/registration/broker.env" "$latest/extras/broker.env" \
     || { echo "  FAILED copying infrastructure/registration/broker.env"; fail=1; }
 fi
+# Keycloak's own Postgres database (users, groups, sessions config, realm
+# keys) as a pg_dump custom-format archive, plus identity.env. Off until
+# Keycloak is deployed; once IDENTITY_ENABLED=1 a failure is a failure.
+if [ "$IDENTITY_ENABLED" = 1 ]; then
+  docker compose -f "$ID_COMPOSE" exec -T postgres pg_dump -U keycloak -d keycloak -Fc \
+       > "$latest/extras/keycloak.pgdump" || {
+    echo "  FAILED Keycloak database backup (is the identity postgres container running?)"; fail=1; }
+  cp -a "$REPO_DIR/infrastructure/identity/identity.env" "$latest/extras/identity.env" \
+    || { echo "  FAILED copying infrastructure/identity/identity.env"; fail=1; }
+fi
 # Our customisations inside mailcow (nginx site, SOGo theme/logos, login page
 # stylesheet, compose override) and mailcow.conf. Optional files are only
 # included if present; anything else going wrong is a failure.
@@ -133,6 +146,7 @@ for f in "$latest"/*.tar.zst; do
 done
 need_files="backup_vmail.tar.zst backup_crypt.tar.zst backup_redis.tar.zst backup_mariadb.tar.zst mailcow.conf extras/mailcow-custom.tgz"
 [ "$SKIP_REGISTRATION" = 1 ] || need_files="$need_files extras/registration.sqlite3 extras/control-plane.sqlite3 extras/registration.env extras/broker.env"
+[ "$IDENTITY_ENABLED" = 1 ] && need_files="$need_files extras/keycloak.pgdump extras/identity.env"
 for need in $need_files; do
   [ -s "$latest/$need" ] || { echo "  MISSING $need"; fail=1; }
 done
@@ -141,6 +155,15 @@ if [ -f "$latest/extras/registration.sqlite3" ]; then
 fi
 if [ -f "$latest/extras/control-plane.sqlite3" ]; then
   python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); assert c.execute('pragma integrity_check').fetchone()[0]=='ok'; print('  ok control-plane.sqlite3', c.execute('select count(*) from audit_events').fetchone()[0], 'audit events')" "$latest/extras/control-plane.sqlite3" || fail=1
+fi
+if [ -s "$latest/extras/keycloak.pgdump" ]; then
+  # pg_restore --list reads the whole archive's table of contents: a truncated
+  # or corrupt dump fails here, not at restore time.
+  if n=$(docker compose -f "$ID_COMPOSE" exec -T postgres pg_restore --list < "$latest/extras/keycloak.pgdump" | grep -c ' TABLE DATA '); then
+    echo "  ok keycloak.pgdump $n tables"
+  else
+    echo "  CORRUPT keycloak.pgdump"; fail=1
+  fi
 fi
 ( cd "$latest" && find . -type f ! -name SHA256SUMS -print0 | xargs -0 sha256sum > SHA256SUMS )
 [ "$fail" -eq 0 ] || { log "ERROR: verification failed, not uploading"; exit 1; }

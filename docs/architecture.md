@@ -182,18 +182,20 @@ Events never contain passwords, tokens or message content.
 | Network | Members | Rule |
 |---|---|---|
 | mailcow's own (`172.22.1.0/24`) | mailcow containers only | Postfix trusts this subnet to relay without auth, so **nothing of ours joins it** (audit fix 6). |
-| `avedeus-edge` (`172.30.240.0/24`, internal) | nginx-mailcow `.2`, sign-up `.10`, control plane `.11`; later portal, admin, Keycloak | No route to the internet. The control plane reaches mailcow's API through nginx; `API_ALLOW_FROM` lists only `.11`. |
+| `avedeus-edge` (`172.30.240.0/24`, internal) | nginx-mailcow `.2`, sign-up `.10`, control plane `.11`, Keycloak `.12` (PR 11, not deployed until the ADR 0006 gate); later portal, admin | No route to the internet. The control plane reaches mailcow's API through nginx; `API_ALLOW_FROM` lists only `.11`. |
 
-From PR 11 the experience containers may get a separate internal network that
-can reach only the control plane and Keycloak; that split is decided in PR 11
-and recorded as an ADR then.
+| `identity-db` (internal) | Keycloak, its Postgres | Keycloak's database is reachable by Keycloak only ([ADR 0019](adr/0019-identity-network-placement.md)). |
+
+Whether experience containers get a separate internal network that reaches
+only the control plane and Keycloak is deferred to PR 14/15, when the first
+one exists ([ADR 0019](adr/0019-identity-network-placement.md)).
 
 ### Resource budget (Oracle A1, 2 OCPU / 12 GB)
 
 | Component | RAM (approx., to be measured on Oracle) |
 |---|---|
 | mailcow with ClamAV | 4–5 GB |
-| Keycloak + Postgres | 1.2 GB (capped JVM heap) |
+| Keycloak + Postgres | 1.2 GB (limits 1 GB + 256 MB; 512 MB heap; about 0.7 GB measured on x86 after start-up, PR 11) |
 | Prometheus + Grafana + exporters (PR 27, deferred until justified) | 0 GB now (0.5 GB if added) |
 | Avedeus services (control plane, sign-up, portal, admin) | 0.4 GB |
 | Headroom | about 5 GB |

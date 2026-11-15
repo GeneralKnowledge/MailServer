@@ -21,7 +21,7 @@ separately on purpose.
 | [0003](0003-control-plane-owns-upstream-credentials.md) | Only the control plane holds upstream credentials | Accepted | Yes for mailcow (broker, audit fix 7; per-caller credentials PR 9) | No |
 | [0004](0004-sources-of-truth.md) | mailcow owns mailboxes, Keycloak owns identities, control plane stores links only | Accepted | Partly (mailcow side) | No |
 | [0005](0005-native-aliases-first.md) | mailcow-native aliases first; SimpleLogin optional and gated (E2) | Accepted; alias work **parked** 2026-11-15 | No | No |
-| [0006](0006-keycloak-identity-provider.md) | Keycloak is the identity provider (E1); validation gate before deployment | Accepted | No (PR 11, 12) | No |
+| [0006](0006-keycloak-identity-provider.md) | Keycloak is the identity provider (E1); validation gate before deployment | Accepted | Partly (PR 11: stack and realm as code, CI start-and-import test; not deployed, gate open; PR 12 connects mailcow) | No |
 | [0007](0007-no-shared-databases.md) | No shared databases | Accepted | Yes so far | No |
 | [0008](0008-no-changes-inside-mailcow.md) | No changes inside the mailcow tree | Accepted | Yes | No |
 | [0009](0009-integrations-behind-adapters.md) | Every integration behind its own adapter | Accepted | Partly (adapter boundary and mailcow adapter, PR 9) | No |
@@ -34,3 +34,4 @@ separately on purpose.
 | [0016](0016-use-what-exists-first.md) | Use what mailcow, SOGo and Keycloak provide first; build only for a demonstrable gap | Accepted | n/a (review rule) | n/a |
 | [0017](0017-minimum-complete-platform.md) | Minimum complete platform; replaceable boundaries without replacement machinery; the removal test | Accepted | n/a (scope rule) | n/a |
 | [0018](0018-initial-mail-domain.md) | Initial mail domain is a subdomain (`mail.avedeus.ovh`); root domain untouched | Accepted; host name open point | No | No |
+| [0019](0019-identity-network-placement.md) | Keycloak on `avedeus-edge` (`.12`); its own Postgres on an internal network; experience network split deferred to PR 14/15 | Accepted | Yes in code (PR 11) | No |

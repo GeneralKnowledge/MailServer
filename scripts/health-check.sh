@@ -32,7 +32,8 @@ ok() { echo "ok: $*"; }
 
 echo "== Containers"
 cd "$MAILCOW_DIR" 2>/dev/null || bad mailcow-dir "mailcow dir $MAILCOW_DIR missing"
-for project in mailcowdockerized registration; do
+# identity (Keycloak) only has containers once it is deployed (ADR 0006 gate).
+for project in mailcowdockerized registration identity; do
   while read -r name status; do
     [ -z "$name" ] && continue
     case "$status" in

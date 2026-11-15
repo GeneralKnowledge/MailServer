@@ -15,6 +15,7 @@
 | Invitation database | `extras/registration.sqlite3` |
 | Control-plane database (audit log, idempotency records; PR 9) | `extras/control-plane.sqlite3` |
 | Registration `.env` and broker `broker.env` (secrets, incl. the mailcow API key) | `extras/registration.env`, `extras/broker.env` |
+| Keycloak's database and `identity.env` (PR 11; only with `IDENTITY_ENABLED=1`, i.e. once Keycloak is deployed after the ADR 0006 gate) | `extras/keycloak.pgdump`, `extras/identity.env` |
 | nginx custom site, SOGo branding, TLS certs | `extras/mailcow-custom.tgz` |
 | Checksums | `SHA256SUMS` |
 
@@ -33,7 +34,8 @@ to `/var/backups/mailserver/restore`, also root only.
 - 3 days kept on the server, 30 days off-site (`/etc/mailserver/backup.env`).
 - Verification each run: every archive is tested with `zstd -t`, required
   files must exist (including the invitation database, its `.env` and
-  `mailcow-custom.tgz`), the SQLite copy must pass `integrity_check`, and the
+  `mailcow-custom.tgz`), the SQLite copy must pass `integrity_check`, the
+  Keycloak dump (when enabled) must list its tables with `pg_restore --list`, and the
   upload is checked with `rclone cryptcheck`. Failure → non-zero exit, nothing
   uploaded, logged in `/var/log/mail-backup.log`.
 - Alerts: a failed run sends a push alert (ntfy) and pings healthchecks.io's

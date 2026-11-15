@@ -1,0 +1,153 @@
+{
+  "realm": "avedeus",
+  "displayName": "Avedeus",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "registrationEmailAsUsername": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "rememberMe": false,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 10,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "maxDeltaTimeSeconds": 43200,
+  "passwordPolicy": "length(12) and maxLength(128) and notUsername and notEmail and passwordHistory(3)",
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA1",
+  "otpPolicyDigits": 6,
+  "otpPolicyPeriod": 30,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "eventsEnabled": true,
+  "eventsExpiration": 2592000,
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": false,
+  "groups": [
+    {
+      "name": "users",
+      "path": "/users"
+    },
+    {
+      "name": "admins",
+      "path": "/admins"
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "mailcow",
+      "name": "mailcow (webmail and user settings)",
+      "description": "mailcow's identity provider client (PR 12). Browser sign-in only: mail clients use mailcow app passwords (ADR 0015). Its service account may read users for mailcow's user sync.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${MAILCOW_OIDC_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "frontchannelLogout": true,
+      "rootUrl": "https://${MAIL_HOSTNAME}",
+      "redirectUris": [
+        "https://${MAIL_HOSTNAME}/*"
+      ],
+      "webOrigins": [
+        "https://${MAIL_HOSTNAME}"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "https://${MAIL_HOSTNAME}/*"
+      },
+      "defaultClientScopes": [
+        "basic",
+        "acr",
+        "roles",
+        "profile",
+        "email",
+        "web-origins",
+        "kc-admin-api"
+      ],
+      "optionalClientScopes": [],
+      "fullScopeAllowed": false
+    },
+    {
+      "clientId": "avedeus-control-plane",
+      "name": "Avedeus control plane",
+      "description": "The control plane's Keycloak adapter (PR 12): creates invited users and puts them in groups. No browser flows.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${CONTROL_PLANE_OIDC_SECRET}",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "redirectUris": [],
+      "webOrigins": [],
+      "defaultClientScopes": [
+        "basic",
+        "acr",
+        "roles",
+        "kc-admin-api"
+      ],
+      "optionalClientScopes": [],
+      "fullScopeAllowed": false
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-mailcow",
+      "enabled": true,
+      "serviceAccountClientId": "mailcow",
+      "clientRoles": {
+        "realm-management": [
+          "view-users",
+          "query-users",
+          "query-groups"
+        ]
+      }
+    },
+    {
+      "username": "service-account-avedeus-control-plane",
+      "enabled": true,
+      "serviceAccountClientId": "avedeus-control-plane",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users",
+          "query-groups"
+        ]
+      }
+    }
+  ],
+  "clientScopeMappings": {
+    "realm-management": [
+      {
+        "client": "mailcow",
+        "roles": [
+          "view-users",
+          "query-users",
+          "query-groups"
+        ]
+      },
+      {
+        "client": "avedeus-control-plane",
+        "roles": [
+          "manage-users",
+          "view-users",
+          "query-users",
+          "query-groups"
+        ]
+      }
+    ]
+  }
+}

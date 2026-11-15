@@ -1,0 +1,67 @@
+# Keycloak behind mailcow's nginx (PR 11). DO NOT COPY until the ADR 0006
+# validation gate passes (docs/identity.md); until then Keycloak isn't running.
+#
+# Copy to /opt/mailcow-dockerized/data/conf/nginx/site.identity.custom, then
+#   docker compose restart nginx-mailcow
+# mailcow includes site.*.custom inside its main server block and keeps these
+# files out of git, so updates don't remove it.
+#
+# Proxies https://<mail host>/auth/ to Keycloak on avedeus-edge. The variable +
+# resolver means nginx still starts if Keycloak is down. Keycloak's health
+# and metrics live on its management port (9000) and are never proxied.
+
+location = /auth {
+    return 301 /auth/;
+}
+
+location /auth/ {
+    resolver 127.0.0.11 valid=30s ipv6=off;
+    set $keycloak_upstream http://keycloak:8080;
+    proxy_pass $keycloak_upstream;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Port 443;
+    proxy_buffer_size 128k;          # Keycloak's redirects carry large headers
+    proxy_buffers 4 256k;
+    proxy_busy_buffers_size 256k;
+    proxy_read_timeout 60s;
+    client_max_body_size 1m;
+}
+
+# The admin console and the master realm (where Keycloak admins sign in) are
+# closed to everyone except the addresses listed here. Fail closed: with no
+# allow line, nobody reaches them from outside. Add one line per admin
+# address, e.g.  allow 203.0.113.7;
+location /auth/admin/ {
+    # allow 203.0.113.7;
+    deny all;
+    resolver 127.0.0.11 valid=30s ipv6=off;
+    set $keycloak_upstream http://keycloak:8080;
+    proxy_pass $keycloak_upstream;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Port 443;
+    proxy_buffer_size 128k;
+    proxy_buffers 4 256k;
+    proxy_busy_buffers_size 256k;
+}
+
+location /auth/realms/master/ {
+    # allow 203.0.113.7;
+    deny all;
+    resolver 127.0.0.11 valid=30s ipv6=off;
+    set $keycloak_upstream http://keycloak:8080;
+    proxy_pass $keycloak_upstream;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Port 443;
+    proxy_buffer_size 128k;
+    proxy_buffers 4 256k;
+    proxy_busy_buffers_size 256k;
+}

@@ -3,7 +3,8 @@
 #   1. scripts/restore.sh fetch <backup-folder-name>   download from off-site to /var/backups/mailserver/restore
 #   2. scripts/restore.sh mailcow                       run mailcow's interactive restore (choose that folder)
 #   3. scripts/restore.sh registration <backup-folder>  restore the invitation and control-plane databases
-#   4. scripts/restore.sh list                          list remote backups
+#   4. scripts/restore.sh identity <backup-folder>      restore Keycloak's database (only once Keycloak is deployed)
+#   5. scripts/restore.sh list                          list remote backups
 set -euo pipefail
 umask 077  # everything this script writes holds mail or secrets
 [ -f /etc/mailserver/backup.env ] && . /etc/mailserver/backup.env
@@ -89,6 +90,26 @@ case "${1:-}" in
     else
       echo "no control-plane.sqlite3 in $src (backup older than PR 9); the broker keeps its current database"
     fi ;;
+  identity)
+    src="$RESTORE_DIR/${2:?backup folder name}/extras"
+    ID="docker compose -f $REPO_DIR/infrastructure/identity/docker-compose.yml"
+    [ -s "$src/keycloak.pgdump" ] || { echo "no keycloak.pgdump in $src"; exit 1; }
+    [ -f "$REPO_DIR/infrastructure/identity/identity.env" ] || cp "$src/identity.env" "$REPO_DIR/infrastructure/identity/identity.env"
+    $ID stop keycloak
+    $ID up -d postgres
+    for _ in $(seq 1 30); do $ID exec -T postgres pg_isready -U keycloak -d postgres >/dev/null 2>&1 && break; sleep 2; done
+    # Keep the current database next to the restore, in case it was the newer one.
+    keep="$RESTORE_DIR/keycloak-before-restore-$(date -u +%Y%m%dT%H%M%SZ).pgdump"
+    if $ID exec -T postgres pg_dump -U keycloak -d keycloak -Fc > "$keep" 2>/dev/null && [ -s "$keep" ]; then
+      echo "previous Keycloak database saved to $keep"
+    else
+      rm -f "$keep"
+    fi
+    $ID exec -T postgres dropdb -U keycloak --maintenance-db=postgres --if-exists keycloak
+    $ID exec -T postgres createdb -U keycloak --maintenance-db=postgres -O keycloak keycloak
+    $ID exec -T postgres pg_restore -U keycloak -d keycloak --no-owner --exit-on-error < "$src/keycloak.pgdump"
+    $ID up -d keycloak
+    echo "Keycloak database restored; Keycloak is starting (allow about two minutes)" ;;
   *)
-    sed -n '2,7p' "$0"; exit 1 ;;
+    sed -n '2,8p' "$0"; exit 1 ;;
 esac
