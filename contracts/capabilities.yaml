@@ -1,0 +1,94 @@
+# Who may call which control-plane operation (ADR 0003, 0010).
+#
+# This is the table the control plane enforces from PR 9. Until then the
+# broker has a single caller (the sign-up app) and enforces the `signup` row
+# simply by offering nothing else.
+#
+# CI (contracts/tests) checks that:
+#   - every operation named here exists in control-plane.openapi.yaml,
+#   - every operation in the contract is granted to some caller,
+#   - `signup` is never granted a lifecycle, alias or audit operation,
+#   - only `admin` gets lifecycle and audit operations,
+#   - `monitoring` gets health operations only.
+#
+# Changing a row is an architecture change: name it in the PR description.
+version: 1
+
+callers:
+  signup:
+    description: Public invitation sign-up at /join (registration/).
+    credential: Bearer token + source IP on avedeus-edge
+    subject_from: the invitation, never a request field
+    status: implemented
+    operations:
+      - checkAddress
+      - createMailbox       # replaced by createAccount in PR 12
+      - createAccount       # planned, PR 12
+
+  portal:
+    description: Signed-in user's own account at /account (PR 14).
+    credential: Service credential + the user's Keycloak access token
+    subject_from: verified Keycloak token (sub), never a request field
+    status: planned
+    operations:
+      - listOwnAliases
+      - createOwnAlias
+      - updateOwnAlias
+      - deleteOwnAlias
+      # Rules (PR 23/24, blocked on ADR 0014), privacy (PR 20) and
+      # notifications (PR 26) add their operations here when designed.
+
+  admin:
+    description: Admin console in its own container at /admin (PR 15).
+    credential: Service credential + admin's Keycloak token in the admin group, TOTP, allowed IP
+    subject_from: verified Keycloak token
+    status: planned
+    operations:
+      - listAccounts
+      - getAccount
+      - suspendAccount
+      - reactivateAccount
+      - setAccountQuota
+      - forcePasswordReset
+      - scheduleDeletion
+      - cancelDeletion
+      - readAudit
+
+  pm-token:
+    description: Password managers (Bitwarden etc.) acting for one user.
+    credential: Per-user token, hashed at rest, revocable
+    subject_from: the token's owner
+    status: planned
+    operations:
+      - pmCreateRandomAliasSimpleLoginShape
+      - pmCreateAliasAddyShape
+
+  personal-token:
+    description: Personal API tokens and the MCP server (M10, PR 32). A subset of portal, read-only first.
+    credential: Per-user scoped, IP-limited, short-lived token
+    subject_from: the token's owner
+    status: planned
+    operations:
+      - listOwnAliases
+
+  monitoring:
+    description: health-check.sh today; the PR 13 health contract later. Reads mailcow itself with its own read-only key.
+    credential: Bearer token + source IP
+    subject_from: n/a
+    status: implemented
+    operations:
+      - upstreamCheck
+      - health
+
+# Operations that need no caller credential at all.
+public:
+  - healthz
+
+# Groups used by the CI checks.
+lifecycle_operations:
+  - suspendAccount
+  - reactivateAccount
+  - setAccountQuota
+  - forcePasswordReset
+  - scheduleDeletion
+  - cancelDeletion

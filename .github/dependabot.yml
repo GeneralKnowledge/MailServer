@@ -24,6 +24,13 @@ updates:
     directory: /broker
     schedule:
       interval: weekly
+  - package-ecosystem: pip
+    directory: /contracts
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:

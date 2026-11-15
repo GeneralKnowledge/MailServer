@@ -4,6 +4,11 @@ A private, invitation-based email service built on
 [mailcow: dockerized](https://github.com/mailcow/mailcow-dockerized), running
 on an Oracle Cloud ARM64 (Ampere) instance.
 
+Avedeus is a small platform that integrates existing open-source services;
+mail is its first application. The architecture, its five locked constraints
+and the decisions behind it are in [docs/architecture.md](docs/architecture.md)
+and [docs/adr/](docs/adr/).
+
 mailcow is installed from upstream and kept independent of this repository.
 This repo holds only our documentation, configuration notes and scripts, and
 (from M3) a small separate registration app that provisions mailboxes through
@@ -18,11 +23,11 @@ the mailcow API.
 | M2 Email functionality | Local send/receive (SMTP 465, IMAP 993) worked in the rehearsal. DNS, PTR, outbound port 25 and Gmail/Outlook deliverability untested: need the real server. |
 | M3 Invitation registration | Built, 46 unit tests, and tested against the **real** mailcow API in the rehearsal. Re-check on the real server. |
 | M4 Production preparation | Backup, restore and health scripts working: a full wipe-and-restore succeeded in the 2026-11-14 rehearsal (x86). Still needed: off-site target chosen, and a restore test on the real ARM server. |
-| M5 Operations and observability | Planned, not started. See [roadmap](#roadmap). |
-| M6 User and mailbox lifecycle | Planned, not started. |
-| M7 Service maturity | Planned, not started. |
+| Audit fixes 1–7 | Done in code (PR #1): backups, app fixes, CI, SSH/admin, alerts, network isolation, provisioning broker. Not proven on Oracle. |
+| M5 Integration foundation | PR 8 (architecture, ADRs, contracts) in review. PR 9–13 planned. |
+| M6–M10 | Planned, not started. See [docs/roadmap.md](docs/roadmap.md). |
 
-Nothing has been deployed to the real server yet. The priority is getting M0–M4 running on Oracle and proving real mail delivery before starting M5–M7. Branding ("Avedeus Mail") is in `branding/`.
+Nothing has been deployed to the real server yet. The priority is getting M0–M4 running on Oracle and proving real mail delivery; M5–M10 code can be written earlier but is not done until it runs there. Branding ("Avedeus Mail") is in `branding/`.
 
 ## Contents
 
@@ -31,7 +36,13 @@ Nothing has been deployed to the real server yet. The priority is getting M0–M
 - [docs/m0-readiness-report.md](docs/m0-readiness-report.md) – readiness report
 - [docs/m1-plan.md](docs/m1-plan.md) – M1 installation plan
 - [docs/signup-extension-evaluation.md](docs/signup-extension-evaluation.md) – MediaLab Sign-up evaluation
-- [docs/architecture.md](docs/architecture.md), [deployment.md](docs/deployment.md),
+- [docs/architecture.md](docs/architecture.md) – platform layers, constraints, capabilities;
+  [adr/](docs/adr/) – decisions; [roadmap.md](docs/roadmap.md) – M5–M10;
+  [platform-baseline.md](docs/platform-baseline.md) – when the foundations are done;
+  [integration-contract.md](docs/integration-contract.md) – rules for adapters and new services
+- [contracts/](contracts/) – control-plane OpenAPI, caller capabilities, audit-event schema (checked in CI)
+- [broker/](broker/) – provisioning broker, the first version of the control plane
+- [deployment.md](docs/deployment.md),
   [dns-configuration.md](docs/dns-configuration.md), [email-testing.md](docs/email-testing.md),
   [administration.md](docs/administration.md), [security.md](docs/security.md),
   [backup-and-recovery.md](docs/backup-and-recovery.md)
@@ -42,34 +53,18 @@ Nothing has been deployed to the real server yet. The priority is getting M0–M
 
 ## Roadmap
 
-M5–M7 come from an outside review (2026-11-15). They are **planned, not
-built**. Detailed plan with components, order and open decisions:
-[docs/roadmap-m5-m7.md](docs/roadmap-m5-m7.md). The plan is to make M0–M4 boringly reliable on the real server first.
+[docs/roadmap.md](docs/roadmap.md) is the plan (adopted 2026-11-15). In short:
+M0–M4 on the real Oracle server first, then
 
-**M5 – Operations and observability**
-- Admin-only operations dashboard (not a new public service): server and
-  SMTP/IMAP availability, mail queue and deferred messages, spam-filter
-  activity, disk and memory, mailbox storage use, backup age and verification
-  status, TLS certificate expiry, DNS and email-authentication status
-- Alerts when health checks or backups fail
-- External uptime and delivery monitoring
-
-**M6 – User and mailbox lifecycle**
-- Suspend and reactivate, change quota, reset password, end active sessions
-  where mailcow supports it
-- Delete with a confirmation/grace period (soft delete, so data isn't lost by accident)
-- Per-account history (creation, admin actions)
-- Self-service password recovery; better invitation management
-- Consider a small **provisioning broker** that alone holds the mailcow API
-  key and exposes only create / check / suspend / quota, so the public
-  registration app never holds a full-rights key (see
-  [security.md](docs/security.md))
-
-**M7 – Service maturity**
-- Automated security checks and dependency update management
-- Regular disaster-recovery exercises on the real infrastructure
-- Monthly check of upstream mailcow security releases
-- Documented operational procedures
+- **M5 Integration foundation**: control plane, mailcow-native aliases back
+  end, Keycloak, one identity, health contract
+- **M6 User experience**: portal, separate admin console, account lifecycle,
+  self-service, one look
+- **M7 Privacy**: alias screens, privacy controls, SimpleLogin only if gated in
+- **M8 Automation**: rule engine and editor, forwarding, notifications
+- **M9 Operations**: metrics, audit viewer, recovery drills, delivery and DNS
+  checks, reconciliation
+- **M10 Extensions**: personal tokens and MCP through the control plane
 
 ## Running the M0 inspection
 
