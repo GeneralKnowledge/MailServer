@@ -40,6 +40,9 @@ def test_full_sign_in_shows_account_and_native_links(ctx):
     assert "app password" in t
     assert f"{ISSUER}/account/account-security/signing-in" in t and "https://mx.example.com/user" in t
     assert "https://mx.example.com/SOGo/" in t
+    # PR 20: privacy is discoverable, by name of the native setting it links to.
+    assert "Spam filter" in t and "always allow or always block" in t
+    assert "Display remote inline images" in t and "Quarantine" in t
     # The control plane got the portal's token and the user's access token, nothing naming the user.
     call = ctx.cp.calls[-1]
     assert call["authorization"] == f"Bearer {PORTAL_TOKEN}" and call["x-user-token"].startswith("access-")

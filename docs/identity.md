@@ -211,7 +211,10 @@ All of these are mailcow's own features, configured, not built (ADR 0016):
      sign-up, so nothing waits for a sync.
    - Attribute mapping: `mailcow_template` value → the mailbox template
      (create an `avedeus-user` template with the quota and settings
-     invitations use, and set `MAILBOX_TEMPLATE=avedeus-user`).
+     invitations use, and set `MAILBOX_TEMPLATE=avedeus-user`). In the
+     template's ACL keep **Spam score**, **Denylist/Allowlist**, **Quarantine
+     actions** and **Change quarantine notifications** on: the portal sends
+     people to those settings (PR 20).
 2. mailcow's sync reads users through the admin API at the public URL. In
    `site.identity.custom`, uncomment the `allow` line in the
    `/auth/admin/realms/avedeus/` location for mailcow's own network, **after
