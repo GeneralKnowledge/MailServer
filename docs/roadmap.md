@@ -109,7 +109,7 @@ on 2026-11-15: SOGo owns user-facing rules ([ADR 0014](adr/0014-mail-rule-owner.
 | 29 | Recovery for the new parts | Backup and restore of Keycloak, Postgres and control-plane data; restore drill script; runbooks; mailcow update procedure; **account export and recovery runbooks** (one account's mail via Dovecot export, contacts, calendars and filters via `sogo-tool`; undelete via lazy-expunge and `MAILDIR_GC_TIME`). No export service until there is a demonstrated need | 11 | Yes |
 | 30 | Delivery and DNS checks | Daily delivery probe, DNS and blocklist checks | audit 5 | Yes |
 | 31 | Reconciliation | A simple scheduled job that detects and reports drift between Keycloak, mailcow and control-plane links into the one audit trail; safe auto-fixes only | 12 | Yes |
-| 34 | Message trace (admin) | Read-only, admin-only trace that **correlates a message's whole journey** across mailcow's Postfix log, Rspamd history, quarantine and queue into one plain explanation. Details below | 9, 15; its own read-only mailcow key | Yes |
+| 34 | Message trace (admin) | Read-only, admin-only trace that **correlates a message's whole journey** across mailcow's Postfix log, Rspamd history, quarantine and queue into one plain explanation. Details below. **Implemented in code** (`GET /v1/trace`, `python -m broker.trace`; [administration.md](administration.md#message-trace-pr-34)); not proven on Oracle | 9, 15; its own read-only mailcow key | Yes |
 
 ### PR 34: message trace
 

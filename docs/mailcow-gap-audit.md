@@ -33,7 +33,7 @@ and **account export** (runbook first, PR 29).
 | Sessions | None in mailcow; Keycloak's account console lists and ends browser sessions | Awkward | Link (PR 14); IMAP/SOGo session end is an open server check |
 | Account recovery | Recovery email + forgot-password, only for `authsource = mailcow` ([docs](https://docs.mailcow.email/manual-guides/mailcow-UI/u_e-mailcow_ui-forgot_password/)) | Awkward | Keycloak reset after PR 12 (PR 17) |
 | Logs and health | Admin UI and API: Postfix, Dovecot, Rspamd history, SOGo, netfilter, API, ACME, watchdog logs; container status; DNS checks; watchdog emails | Admin-only | PR 27, PR 30 |
-| Delivery diagnostics | Raw admin log lines; Redis keeps the last 10,000 lines per log ([docs](https://docs.mailcow.email/post_installation/firststeps-logging/)) | Admin-only, **real gap** | PR 34 message trace |
+| Delivery diagnostics | Raw admin log lines; Redis keeps the last 10,000 lines per log ([docs](https://docs.mailcow.email/post_installation/firststeps-logging/)) | Admin-only, **real gap** | PR 34 message trace (implemented in code; not proven on server) |
 | Account export | Import via user sync jobs; SOGo exports single address books and calendars; whole-mailbox export is admin CLI only | Missing, **real gap** | Runbooks in PR 29; no export service until needed |
 | Undelete | Deleted mailboxes kept 5 days (`MAILDIR_GC_TIME`); daily SOGo profile backup; Dovecot lazy-expunge self-restore folder exists but is off ([docs](https://docs.mailcow.email/manual-guides/Dovecot/u_e-dovecot-lazy_expunge/)) | Missing (off) | Enable via `extra.conf` (O1), verify on Oracle |
 

@@ -18,6 +18,7 @@ against all three.
 |---|---|---|
 | `signup` (the registration app) | `SIGNUP_TOKEN` + `SIGNUP_CLIENTS` | `POST /v1/addresses/check`, `POST /v1/accounts` (PR 12), `POST /v1/mailboxes` (refused while Keycloak is on) |
 | `monitoring` (`health-check.sh` via `broker.probe`) | `MONITORING_TOKEN` + `MONITORING_CLIENTS=127.0.0.1` | `GET /v1/health`, `GET /v1/upstream` |
+| `admin` (`python -m broker.trace` inside the container; the admin console from PR 15) | `ADMIN_TOKEN` + `ADMIN_CLIENTS=127.0.0.1` | `GET /v1/trace` (read-only message trace, PR 34; uses `MAILCOW_READ_ONLY_API_KEY` only) |
 | anyone | none | `GET /healthz` (liveness) |
 
 Each caller presents `Authorization: Bearer <its token>` from one of its own
