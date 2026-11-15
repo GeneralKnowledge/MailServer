@@ -231,9 +231,11 @@ sudo nano .env
 ```
 
 In `.env`: `MAILCOW_API_KEY` = the key from B3; `ADMIN_USERNAME` = a name of
-your choice; wrap the password hash in single quotes. Optional but
-recommended: `ADMIN_ALLOWED_IPS=<your home IP>` so the admin page is invisible
-to everyone else (it returns 404).
+your choice; wrap the password hash in single quotes;
+`ADMIN_ALLOWED_IPS=<your home IP or VPN range>` so the admin page is invisible
+to everyone else (it returns 404). The app refuses to start without it unless
+you set `ADMIN_ALLOW_ANY=1`; if your home IP changes, update it here and run
+`docker compose up -d`, and use `python -m app.cli` over SSH meanwhile.
 
 ```sh
 sudo /opt/MailServer/scripts/apply-branding.sh
@@ -285,7 +287,8 @@ Avedeus logo and plum colours on the login page and in webmail, light and dark.
 ## Part F — Go-live checklist
 
 - [ ] mailcow admin: password changed, TOTP on
-- [ ] Invite admin: TOTP set, `ADMIN_ALLOWED_IPS` set (or a conscious choice not to)
+- [ ] Invite admin: TOTP set, `ADMIN_ALLOWED_IPS` set (or `ADMIN_ALLOW_ANY=1` as a conscious choice)
+- [ ] `setup.sh` printed "sshd hardened and verified"
 - [ ] SSH: key-only, port 22 limited to your IP in the security list
 - [ ] Only the ports in A3 are open (check from outside: `nc -zv mail.avedeus.ovh 143` must fail)
 - [ ] PTR shows `mail.avedeus.ovh` (`dig -x <IP> +short`)

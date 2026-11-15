@@ -75,7 +75,7 @@ jobs:
           docker run -d --name reg -p 8000:8000 \
             -e MAILCOW_API_URL=https://mail.example.com -e MAILCOW_API_KEY=x -e MAIL_DOMAIN=example.com \
             -e SESSION_SECRET="$(openssl rand -hex 32)" -e ADMIN_USERNAME=admin -e ADMIN_PASSWORD_HASH=x \
-            -e ADMIN_TOTP_SECRET="$secret" -e DATABASE_PATH=/data/r.sqlite3 \
+            -e ADMIN_TOTP_SECRET="$secret" -e ADMIN_ALLOWED_IPS=127.0.0.1 -e DATABASE_PATH=/data/r.sqlite3 \
             mailserver-registration:ci
           for i in $(seq 1 30); do
             curl -fsS http://127.0.0.1:8000/join/healthz && exit 0

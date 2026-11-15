@@ -128,3 +128,14 @@ def test_cli_create_invite_respects_max_quota(tmp_path, monkeypatch, capsys):
     assert cli_main(["create-invite", "--quota", "5000"]) == 1
     assert "MAX_QUOTA_MB" in capsys.readouterr().err
     assert cli_main(["create-invite", "--quota", "4096"]) == 0
+
+
+# ---- M4: admin pages must be limited to known addresses ------------------------
+
+def test_admin_ips_required_unless_explicitly_open(env):
+    env.pop("ADMIN_ALLOW_ANY")
+    with pytest.raises(RuntimeError, match="ADMIN_ALLOWED_IPS"):
+        load_settings(env)
+    assert load_settings({**env, "ADMIN_ALLOWED_IPS": "203.0.113.7, 10.8.0.0/24"}).admin_allowed_ips
+    with pytest.raises(RuntimeError, match="not a valid"):
+        load_settings({**env, "ADMIN_ALLOWED_IPS": "my-home"})

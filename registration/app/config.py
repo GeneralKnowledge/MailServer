@@ -55,7 +55,7 @@ class Settings:
     admin_username: str
     admin_password_hash: str
     admin_totp_secret: str
-    admin_allowed_ips: str  # comma-separated IPs/CIDRs allowed to reach /admin; empty = anyone
+    admin_allowed_ips: str  # comma-separated IPs/CIDRs allowed to reach /admin; empty only with ADMIN_ALLOW_ANY=1
 
     # defaults
     default_quota_mb: int
@@ -85,6 +85,22 @@ def _check_totp_secret(secret: str) -> str:
     if len(key) < 16:
         raise RuntimeError("ADMIN_TOTP_SECRET is too short (need at least 128 bits); use: python -m app.cli new-totp")
     return s
+
+
+def _admin_ips(src) -> str:
+    """The admin pages must be limited to known addresses. Without that, anyone
+    can also trip the all-IPs login limit and lock the real admin out for an
+    hour. Opening them to everyone needs an explicit ADMIN_ALLOW_ANY=1."""
+    ips = src.get("ADMIN_ALLOWED_IPS", "").strip()
+    if not ips and not _bool(src, "ADMIN_ALLOW_ANY", False):
+        raise RuntimeError("Set ADMIN_ALLOWED_IPS (your IP or VPN range) or, to accept the risk, ADMIN_ALLOW_ANY=1")
+    if ips:
+        from .security import parse_networks
+        try:
+            parse_networks(ips)
+        except ValueError as e:
+            raise RuntimeError(f"ADMIN_ALLOWED_IPS is not a valid list of IPs/CIDRs: {e}") from None
+    return ips
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -124,7 +140,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         admin_username=req("ADMIN_USERNAME"),
         admin_password_hash=req("ADMIN_PASSWORD_HASH"),
         admin_totp_secret=_check_totp_secret(req("ADMIN_TOTP_SECRET")),
-        admin_allowed_ips=src.get("ADMIN_ALLOWED_IPS", ""),
+        admin_allowed_ips=_admin_ips(src),
         default_quota_mb=_int(src, "DEFAULT_QUOTA_MB", 2048),
         max_quota_mb=_int(src, "MAX_QUOTA_MB", 10240),
         invite_days=_int(src, "INVITE_DAYS", 7),

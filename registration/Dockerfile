@@ -12,7 +12,7 @@ COPY app ./app
 USER app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:8000'+os.environ.get('BASE_PATH','/join')+'/healthz', timeout=4)"
+  CMD python -c "import os,urllib.request; b=os.environ.get('BASE_PATH','/join').strip('/'); urllib.request.urlopen('http://127.0.0.1:8000'+('/'+b if b else '')+'/healthz', timeout=4)"
 # One worker: the rate limiter and SQLite writer are per-process by design.
 # --no-access-log: invite links carry secret tokens in the URL; don't write them to logs.
 # --forwarded-allow-ips trusts X-Forwarded-For only from mailcow's nginx on the mailcow network.

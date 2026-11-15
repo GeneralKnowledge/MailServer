@@ -6,6 +6,11 @@
 # Proxies https://mail.<domain>/join/ to the registration container.
 # The variable + resolver means nginx still starts if the app is down.
 
+# /join without the slash would otherwise fall through to mailcow.
+location = /join {
+    return 301 /join/;
+}
+
 location /join/ {
     resolver 127.0.0.11 valid=30s ipv6=off;
     set $registration_upstream http://registration:8000;

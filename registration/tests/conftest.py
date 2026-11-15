@@ -44,6 +44,7 @@ def env():
         "ADMIN_TOTP_SECRET": TOTP,
         "DATABASE_PATH": ":memory:",
         "BRAND_NAME": "Test Mail",
+        "ADMIN_ALLOW_ANY": "1",
     }
 
 
