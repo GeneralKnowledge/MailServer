@@ -68,6 +68,8 @@ services:
       # Realm, clients and groups as code. Imported only if the realm does not
       # exist yet; later changes go through the admin API or a re-import.
       - ./realm:/opt/keycloak/data/import:ro
+      # PR 18: the Avedeus login theme (colours and logo on Keycloak's own pages).
+      - ./themes/avedeus:/opt/keycloak/themes/avedeus:ro
     networks:
       identity-db: {}
       edge:

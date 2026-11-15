@@ -87,7 +87,10 @@ def test_served_under_auth_behind_the_proxy():
     assert env["KC_PROXY_HEADERS"] == "xforwarded"
     assert env["KC_METRICS_ENABLED"] == "false"      # PR 27 deferred
     assert "--import-realm" in SERVICES["keycloak"]["command"]
-    assert SERVICES["keycloak"]["volumes"] == ["./realm:/opt/keycloak/data/import:ro"]
+    assert SERVICES["keycloak"]["volumes"] == [
+        "./realm:/opt/keycloak/data/import:ro",
+        "./themes/avedeus:/opt/keycloak/themes/avedeus:ro",   # PR 18
+    ]
 
 
 def test_nginx_proxies_auth_and_closes_admin_by_default():
@@ -213,3 +216,33 @@ def test_no_secrets_committed():
     for name in placeholders:
         assert re.search(rf"^{name}=", ENV_EXAMPLE, re.M), f"{name} missing from identity.env.example"
     assert "identity.env\n" in (ROOT / ".gitignore").read_text().replace("infrastructure/identity/", "")
+
+
+THEME = HERE / "themes" / "avedeus" / "login"
+
+
+def test_login_pages_use_the_avedeus_theme():
+    # PR 18: realm points at the theme and the theme is mounted read-only.
+    assert REALM["loginTheme"] == "avedeus"
+    assert REALM["displayNameHtml"] == "Avedeus Mail"
+    assert "./themes/avedeus:/opt/keycloak/themes/avedeus:ro" in SERVICES["keycloak"]["volumes"]
+
+
+def test_theme_is_css_only_on_keycloaks_own_pages():
+    # Upgrade safety: inherit every page from keycloak.v2 and override only
+    # stylesheets, so a Keycloak update can't leave a stale page template.
+    props = dict(
+        line.split("=", 1) for line in (THEME / "theme.properties").read_text().splitlines()
+        if "=" in line and not line.startswith("#")
+    )
+    assert props["parent"] == "keycloak.v2"
+    assert props["styles"].split()[:1] == ["css/styles.css"], "keep Keycloak's own styles first"
+    assert not list(THEME.rglob("*.ftl")), "no page template overrides"
+    assert not list(THEME.rglob("*.js")), "no scripts"
+
+
+def test_theme_brand_files_match_the_generated_ones():
+    # apply-branding.sh writes the same brand.css/logo.svg everywhere.
+    for name in ("css/brand.css", "img/logo.svg"):
+        assert (THEME / "resources" / name).read_bytes() == \
+            (ROOT / "portal/app/static" / name.split("/")[1]).read_bytes(), name

@@ -13,6 +13,10 @@ shown working on the server, with a note of what was checked and when. A PR
 that moves no line says "baseline: no change". This stops work from looking
 finished when it has never been shown working together on the real box.
 
+PR 18 (2026-11-15): baseline: no change. Keycloak's sign-in pages wear the
+Avedeus theme (CSS only) and mailcow's own "show only Single Sign-On" option is
+documented as a server step. Not deployed.
+
 PR 17 (2026-11-15): baseline lines unchanged. It closes a hole in line 1's
 identity (users could change their own email, which is how mailcow finds
 them; now admin-only, checked against a real Keycloak) and adds self-service
