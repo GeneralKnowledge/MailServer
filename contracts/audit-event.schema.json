@@ -5,56 +5,174 @@
   "description": "One append-only record per state-changing control-plane operation and per refused call. Never contains passwords, tokens, invitation tokens or message content. Implemented from PR 9; nothing writes it yet.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "id", "time", "caller", "action", "outcome", "request_id"],
+  "required": [
+    "schema",
+    "id",
+    "time",
+    "caller",
+    "action",
+    "outcome",
+    "request_id"
+  ],
   "properties": {
-    "schema": {"const": 1},
-    "id": {"type": "string", "description": "Unique event id (UUID or ULID).", "minLength": 16, "maxLength": 64},
-    "time": {"type": "string", "format": "date-time"},
-    "request_id": {"type": "string", "maxLength": 64},
+    "schema": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "description": "Unique event id (UUID or ULID).",
+      "minLength": 16,
+      "maxLength": 64
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "request_id": {
+      "type": "string",
+      "maxLength": 64
+    },
     "caller": {
       "description": "Row in capabilities.yaml that made the call.",
-      "enum": ["signup", "portal", "admin", "pm-token", "personal-token", "monitoring", "system"]
+      "enum": [
+        "signup",
+        "portal",
+        "admin",
+        "pm-token",
+        "personal-token",
+        "monitoring",
+        "system"
+      ]
     },
     "actor": {
       "description": "Who acted: the signed-in user or admin (Keycloak sub), the token owner, or null for signup and system jobs.",
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "additionalProperties": false,
-      "required": ["kind", "id"],
+      "required": [
+        "kind",
+        "id"
+      ],
       "properties": {
-        "kind": {"enum": ["user", "admin", "token"]},
-        "id": {"type": "string", "maxLength": 128}
+        "kind": {
+          "enum": [
+            "user",
+            "admin",
+            "token"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "maxLength": 128
+        }
       }
     },
-    "source_ip": {"type": ["string", "null"], "maxLength": 45},
+    "source_ip": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 45
+    },
     "action": {
       "description": "Dotted name, e.g. mailbox.create, account.suspend, alias.delete, auth.refused. Matches x-avedeus-audit in the contract.",
       "type": "string",
       "pattern": "^[a-z_]+\\.[a-z_]+$"
     },
-    "operation": {"type": ["string", "null"], "description": "Contract operationId, if any.", "maxLength": 64},
+    "operation": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Contract operationId, if any.",
+      "maxLength": 64
+    },
     "subject": {
       "description": "What was acted on.",
-      "type": ["object", "null"],
+      "type": [
+        "object",
+        "null"
+      ],
       "additionalProperties": false,
       "properties": {
-        "account": {"type": "string", "maxLength": 128},
-        "address": {"type": "string", "maxLength": 254},
-        "alias": {"type": "string", "maxLength": 254}
+        "account": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "address": {
+          "type": "string",
+          "maxLength": 254
+        },
+        "alias": {
+          "type": "string",
+          "maxLength": 254
+        }
       }
     },
-    "outcome": {"enum": ["ok", "refused", "failed"]},
-    "error_kind": {"type": ["string", "null"], "maxLength": 32},
-    "adapter": {"type": ["string", "null"], "description": "Adapter that served it (mailcow, keycloak, …).", "maxLength": 32},
-    "idempotency_key": {"type": ["string", "null"], "maxLength": 128},
+    "outcome": {
+      "enum": [
+        "ok",
+        "refused",
+        "failed"
+      ]
+    },
+    "error_kind": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 32
+    },
+    "adapter": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Adapter that served it (mailcow, keycloak, \u2026).",
+      "maxLength": 32
+    },
+    "idempotency_key": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 128
+    },
     "changes": {
-      "description": "Non-secret fields that changed, e.g. {\"quota_mb\": {\"from\": 2048, \"to\": 4096}}. Keys that look like secrets are refused by CI and must be refused by the writer.",
+      "description": "Non-secret fields that changed, e.g. {\"quota_mb\": {\"from\": 2048, \"to\": 4096}}. Values are scalars only (no objects or lists), and keys that look like secrets are refused, so a secret cannot be nested inside a change.",
       "type": "object",
-      "propertyNames": {"not": {"pattern": "(?i)(pass|secret|token|key|cookie|totp)"}},
+      "propertyNames": {
+        "not": {
+          "pattern": "(?i)(pass|secret|token|key|cookie|totp)"
+        }
+      },
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
-        "properties": {"from": {}, "to": {}}
+        "properties": {
+          "from": {
+            "$ref": "#/$defs/changeValue"
+          },
+          "to": {
+            "$ref": "#/$defs/changeValue"
+          }
+        }
       }
+    }
+  },
+  "$defs": {
+    "changeValue": {
+      "description": "Scalars only, so a secret cannot hide inside a nested object or list.",
+      "type": [
+        "string",
+        "number",
+        "integer",
+        "boolean",
+        "null"
+      ],
+      "maxLength": 254
     }
   }
 }

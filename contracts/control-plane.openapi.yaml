@@ -63,7 +63,10 @@ paths:
     get:
       operationId: upstreamCheck
       tags: [health]
-      summary: Checks that the mailcow key and IP allow-list work (used by health-check.sh).
+      summary: Checks that the mailcow key and IP allow-list work.
+      description: |
+        No client calls this over HTTP today. health-check.sh runs the same
+        check with `python -m broker.selfcheck` inside the broker container.
       x-avedeus-status: implemented
       responses:
         "200":
@@ -407,7 +410,8 @@ components:
       scheme: bearer
       description: |
         Each caller's own credential, also checked against its allowed source
-        addresses. Today one BROKER_TOKEN; per-caller credentials from PR 9.
+        addresses. Today one shared BROKER_TOKEN unlocks every broker route;
+        per-caller credentials and capability enforcement arrive in PR 9.
     userToken:
       type: http
       scheme: bearer

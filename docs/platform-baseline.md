@@ -5,8 +5,15 @@ The owner's test (2026-11-15) for when the foundations (layers 1–4 in
 the experience layer. Each line is tracked twice: **in code** and **proven on
 Oracle**. A line counts as met only when both say yes.
 
-Status as of PR 8 (2026-11-15). Update this table in every PR that moves a
-line.
+**This is a living acceptance checklist.** Every PR must update it when it
+genuinely moves a line forward, and say so in its description. The two
+columns are recorded separately: a PR that finishes the code moves only
+**In code**; **Proven on Oracle** moves only when the thing has actually been
+shown working on the server, with a note of what was checked and when. A PR
+that moves no line says "baseline: no change". This stops work from looking
+finished when it has never been shown working together on the real box.
+
+Status as of PR 8 (2026-11-15).
 
 | # | The baseline is done when… | In code | Proven on Oracle | What closes it |
 |---|---|---|---|---|

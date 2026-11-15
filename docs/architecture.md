@@ -81,7 +81,9 @@ its description.
 **Review rule.** A PR must not quietly bring back a rejected project
 ([ADR 0011](adr/0011-rejected-projects.md)) or an alternative to an accepted
 ADR. Every PR states two things separately: **implemented in code** (yes /
-partly / no) and **proven on Oracle** (yes / no, and what was checked).
+partly / no) and **proven on Oracle** (yes / no, and what was checked). Every
+PR also updates the living [baseline checklist](platform-baseline.md) when it
+moves a line, recording code and Oracle proof separately.
 
 ## Target architecture
 
@@ -117,8 +119,9 @@ The machine-readable version is
 [contracts/capabilities.yaml](../contracts/capabilities.yaml), and CI checks
 that every operation it lists exists in the
 [OpenAPI contract](../contracts/control-plane.openapi.yaml). Enforcement in
-code arrives with PR 9; today the broker enforces the `signup` row by having
-no other endpoints.
+code arrives with PR 9. Today there is no caller separation: one shared
+token unlocks every broker route, and the `signup` row holds only because the
+broker has no other state-changing endpoints.
 
 | Caller | Credential | Allowed operations | Identity of the subject comes from |
 |---|---|---|---|

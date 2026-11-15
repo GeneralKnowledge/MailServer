@@ -28,7 +28,8 @@ when:
   operation, or anyone but `admin` gets lifecycle or audit;
 - a planned state-changing operation has no `Idempotency-Key` or no audit
   action;
-- the audit schema would accept a password, token or key.
+- the audit schema would accept a password, token or key, including one
+  nested inside a change value.
 
 ```sh
 pip install -r broker/requirements.txt -r contracts/requirements-dev.txt
@@ -54,5 +55,12 @@ python -m pytest -q contracts
   reachable, but the sign-up app stores that `detail` in its event log, so it
   would become a leak if `MIN_PASSWORD_LEN` were set below 8. PR 9 should
   return the envelope and never echo input.
-- One `BROKER_TOKEN` is shared by the `signup` and `monitoring` rows today.
-  Per-caller credentials arrive in PR 9.
+- There is no caller separation yet. One shared `BROKER_TOKEN` unlocks every
+  broker route, and the sign-up app is its only HTTP client (`health-check.sh`
+  runs `broker.selfcheck` inside the container instead). Every row in
+  capabilities.yaml says `enforced: false` until PR 9 adds per-caller
+  credentials and enforcement.
+- The contract tests check routes, response shapes and capability rules. They
+  do not yet check that real requests match the request schemas, or that
+  authentication matches the security declarations; that comes with PR 9's
+  per-caller security.

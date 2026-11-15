@@ -11,6 +11,8 @@ architecture) comes next, then PR 9 onward. Every PR:
 - is small enough to review in one sitting, with tests against fakes;
 - lands behind a feature flag where it touches users;
 - states **implemented in code** and **proven on Oracle** separately;
+- updates [platform-baseline.md](platform-baseline.md) when it moves a line
+  (code and Oracle proof recorded separately), or says "baseline: no change";
 - names and justifies any departure from an accepted ADR or a rejected
   project ([ADR 0011](adr/0011-rejected-projects.md)).
 

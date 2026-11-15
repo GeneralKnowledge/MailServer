@@ -142,6 +142,12 @@ def test_monitoring_gets_health_only(spec, caps):
         assert ops[op_id][2].get("tags") == ["health"], op_id
 
 
+def test_every_row_says_whether_it_is_enforced(caps):
+    # No caller separation exists before PR 9; the table must not claim otherwise.
+    for name, row in caps["callers"].items():
+        assert isinstance(row.get("enforced"), bool), f"{name}: enforced must be true or false"
+
+
 def test_tokens_cannot_exceed_portal(caps):
     portal = set(caps["callers"]["portal"]["operations"])
     assert set(caps["callers"]["personal-token"]["operations"]) <= portal
@@ -235,6 +241,11 @@ def test_audit_schema_is_valid_and_accepts_a_normal_event(audit_schema):
     {"changes": {"api_key": {"to": "k"}}},
     {"caller": "someone-else"},
     {"outcome": "maybe"},
+    # Secrets nested inside a change value (review of PR 8): values are scalars only.
+    {"changes": {"quota": {"to": {"password": "secret-value"}}}},
+    {"changes": {"quota": {"from": {"nested": {"token": "x"}}}}},
+    {"changes": {"quota": {"to": ["secret-value"]}}},
+    {"changes": {"note": {"to": "x" * 255}}},
 ])
 def test_audit_schema_refuses_secrets_and_unknowns(audit_schema, bad):
     with pytest.raises(jsonschema.ValidationError):
