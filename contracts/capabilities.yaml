@@ -1,24 +1,20 @@
 # Who may call which control-plane operation (ADR 0003, 0010).
 #
-# This is the table the control plane enforces from PR 9.
-#
-# Today (before PR 9) there is NO per-caller separation. The broker accepts
-# one shared BROKER_TOKEN from the addresses in BROKER_ALLOWED_CLIENTS, and
-# any holder of that token can call every route the broker has. The sign-up
-# app is the only HTTP client. health-check.sh does not call the broker's API:
-# it runs `python -m broker.selfcheck` inside the broker container, which
-# checks the mailcow key directly. The `signup` row holds today only because
-# the broker offers no other state-changing route; the `monitoring` row
-# describes the caller PR 9/13 will create and is not enforced at all.
-# `enforced: false` marks this. PR 9 gives each caller its own credential and
-# enforces these rows; it must then set `enforced: true`.
+# Enforced since PR 9 for the rows marked `enforced: true`: each such caller
+# has its own token and source addresses (broker.env: <NAME>_TOKEN and
+# <NAME>_CLIENTS) and may use only the implemented operations listed here.
+# The control plane holds a Python copy (broker/broker/capabilities.py) so its
+# image needs nothing from outside broker/; CI fails if the two differ.
+# Planned operations in an enforced row become usable only when built.
 #
 # CI (contracts/tests) checks that:
 #   - every operation named here exists in control-plane.openapi.yaml,
 #   - every operation in the contract is granted to some caller,
 #   - `signup` is never granted a lifecycle, alias or audit operation,
 #   - only `admin` gets lifecycle and audit operations,
-#   - `monitoring` gets health operations only.
+#   - `monitoring` gets health operations only,
+#   - the enforced rows match broker/broker/capabilities.py exactly, and the
+#     running control plane answers 401/403/allowed as these rows say.
 #
 # Changing a row is an architecture change: name it in the PR description.
 version: 1
@@ -28,8 +24,8 @@ callers:
     description: Public invitation sign-up at /join (registration/).
     credential: Bearer token + source IP on avedeus-edge
     subject_from: the invitation, never a request field
-    status: existing client of the broker, on the shared token
-    enforced: false     # per-caller enforcement arrives in PR 9
+    status: implemented (SIGNUP_TOKEN, SIGNUP_CLIENTS)
+    enforced: true
     operations:
       - checkAddress
       - createMailbox       # replaced by createAccount in PR 12
@@ -46,8 +42,9 @@ callers:
       - createOwnAlias
       - updateOwnAlias
       - deleteOwnAlias
-      # Rules (PR 23/24, blocked on ADR 0014), privacy (PR 20) and
-      # notifications (PR 26) add their operations here when designed.
+      # Notifications (PR 26) add their operations here when designed.
+      # PR 20 (privacy) adds none: it is configuration and links only.
+      # Rules (PR 23-25) are deferred: SOGo owns them (ADR 0014, proposed).
 
   admin:
     description: Admin console in its own container at /admin (PR 15).
@@ -77,7 +74,7 @@ callers:
       - pmCreateAliasAddyShape
 
   personal-token:
-    description: Personal API tokens and the MCP server (M10, PR 32). A subset of portal, read-only first.
+    description: Personal API tokens and the MCP server (M10, PR 32, deferred until an actual integration needs it). A subset of portal, read-only first.
     credential: Per-user scoped, IP-limited, short-lived token
     subject_from: the token's owner
     status: planned
@@ -86,11 +83,11 @@ callers:
       - listOwnAliases
 
   monitoring:
-    description: health-check.sh and the PR 13 health contract, once they call the control plane over HTTP. Reads mailcow itself with its own read-only key (PR 27).
+    description: health-check.sh and the PR 13 health contract, once they call the control plane over HTTP. Metrics (PR 27) are deferred; the first read-only mailcow key belongs to PR 34's message trace.
     credential: Bearer token + source IP
     subject_from: n/a
-    status: planned caller. upstreamCheck exists, but nothing calls it over HTTP yet; health-check.sh uses broker.selfcheck inside the container instead
-    enforced: false     # no separate monitoring credential until PR 9
+    status: implemented (MONITORING_TOKEN, MONITORING_CLIENTS; optional). No client uses it yet; health-check.sh still runs broker.selfcheck inside the container until PR 13 wires it to /v1/health
+    enforced: true
     operations:
       - upstreamCheck
       - health

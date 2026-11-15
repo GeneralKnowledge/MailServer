@@ -34,8 +34,9 @@ BROKER_ENV = {
     "MAILCOW_API_URL": "https://mail.example.com",
     "MAILCOW_API_KEY": API_KEY,
     "MAIL_DOMAIN": "example.com",
-    "BROKER_TOKEN": BROKER_TOKEN,
-    "BROKER_ALLOWED_CLIENTS": "*",  # TestClient has no real client IP
+    "SIGNUP_TOKEN": BROKER_TOKEN,   # the app's BROKER_TOKEN is the control plane's SIGNUP_TOKEN
+    "SIGNUP_CLIENTS": "*",  # TestClient has no real client IP
+    "CONTROL_PLANE_DB": ":memory:",
     "MAX_QUOTA_MB": "10240",
 }
 

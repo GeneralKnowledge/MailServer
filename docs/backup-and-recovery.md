@@ -13,6 +13,7 @@
 | Rspamd, Postfix data | `backup_rspamd.tar.zst`, `backup_postfix.tar.zst` |
 | mailcow.conf | `mailcow.conf` |
 | Invitation database | `extras/registration.sqlite3` |
+| Control-plane database (audit log, idempotency records; PR 9) | `extras/control-plane.sqlite3` |
 | Registration `.env` and broker `broker.env` (secrets, incl. the mailcow API key) | `extras/registration.env`, `extras/broker.env` |
 | nginx custom site, SOGo branding, TLS certs | `extras/mailcow-custom.tgz` |
 | Checksums | `SHA256SUMS` |
@@ -88,6 +89,10 @@ your password manager. Without it the off-site backups can't be decrypted.
    (works on an empty volume too; it creates the container if needed). The
    database it replaces is saved first as
    `/var/backups/mailserver/restore/registration-before-restore-<time>.sqlite3`.
+   The same command restores the control plane's database (audit log) if the
+   backup has one, saving the current one as `control-plane-before-restore-<time>.sqlite3`.
+   Afterwards run `scripts/reconcile.sh` to see whether mailcow and the audit
+   log agree.
 5. Run `scripts/health-check.sh` and the checks in
    [email-testing.md](email-testing.md).
 

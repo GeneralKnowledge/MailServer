@@ -1,6 +1,6 @@
 # Avedeus control plane: the service contract.
 #
-# Today the control plane is the provisioning broker in broker/ (audit fix 7).
+# The control plane is the broker in broker/ (audit fix 7, grown in PR 9).
 # Operations marked `x-avedeus-status: implemented` exist in broker/ now and
 # CI checks that the broker's routes match them exactly. Operations marked
 # `planned` are the agreed shape for the PR named in `x-avedeus-pr`; that PR
@@ -19,10 +19,9 @@ info:
 
     Conventions:
     - Errors are always `{"ok": false, "kind": <ErrorKind>, "detail": <text>}`.
-    - Planned state-changing operations take an `Idempotency-Key` header; a
-      repeat with the same key returns the first result (PR 9). The
-      implemented createMailbox predates this and is made safe by checking
-      whether the mailbox exists after a lost reply.
+    - State-changing operations take an `Idempotency-Key` header; a repeat
+      with the same key returns the first result (PR 9). It is required on
+      planned operations and optional on createMailbox, which predates it.
     - The subject of a portal or token operation comes from the verified
       Keycloak token or the token's owner, never from a request field.
     - Every state-changing call and every refused call writes one audit event
@@ -88,14 +87,17 @@ paths:
       operationId: health
       tags: [health]
       summary: Health of the control plane and every adapter, in one shape.
-      x-avedeus-status: planned
-      x-avedeus-pr: 13
+      description: |
+        Implemented in PR 9. PR 13 wires health-check.sh and the alerts to it.
+      x-avedeus-status: implemented
       responses:
         "200":
           description: Overall and per-adapter health.
           content:
             application/json:
               schema: {$ref: "#/components/schemas/Health"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
 
   /v1/addresses/check:
     post:
@@ -130,6 +132,7 @@ paths:
                   mailbox: {type: boolean, description: The address is a mailbox.}
         "401": {$ref: "#/components/responses/Error"}
         "403": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
         "502": {$ref: "#/components/responses/Error"}
 
   /v1/mailboxes:
@@ -141,8 +144,20 @@ paths:
         The broker enforces the fixed domain, username rules, reserved names,
         the quota ceiling and a daily creation cap whatever the caller sends.
         Replaced by createAccount in PR 12, when Keycloak creates identities.
+
+        Idempotency-Key is optional here (it predates the convention); the
+        sign-up app sends one per invitation claim. A repeat with the same key
+        and request replays the first result; the same key with a different
+        request is a 409 `conflict`. Failed attempts leave no record, so they
+        can be retried with the same key. Without a key, a lost mailcow reply
+        is still handled by checking whether the mailbox exists.
       x-avedeus-status: implemented
       x-avedeus-audit: mailbox.create
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: {type: string, minLength: 16, maxLength: 128}
       requestBody:
         required: true
         content:
@@ -409,9 +424,11 @@ components:
       type: http
       scheme: bearer
       description: |
-        Each caller's own credential, also checked against its allowed source
-        addresses. Today one shared BROKER_TOKEN unlocks every broker route;
-        per-caller credentials and capability enforcement arrive in PR 9.
+        Each caller's own credential (SIGNUP_TOKEN, MONITORING_TOKEN, ...),
+        also checked against that caller's allowed source addresses. Which
+        operations each caller may use is capabilities.yaml, enforced since
+        PR 9. 401 = no valid token; 403 = wrong address or operation not in
+        the caller's row.
     userToken:
       type: http
       scheme: bearer
@@ -455,8 +472,8 @@ components:
         - auth          # 502 upstream refused our credential
         - unavailable   # 502 upstream unreachable or timed out
         - rejected      # 502 upstream refused the request
-        - not_found     # 404 (planned)
-        - conflict      # 409 idempotency key reused with a different body (planned)
+        - not_found     # 404 unknown route
+        - conflict      # 409 idempotency key reused with a different request, or still in progress
     Error:
       type: object
       required: [ok, kind, detail]

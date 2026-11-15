@@ -31,6 +31,8 @@ class FakeMailcow:
         if request.headers.get("X-API-Key") != API_KEY:
             return httpx.Response(401, json={"type": "error", "msg": "authentication failed"})
 
+        if request.method == "GET" and path == "/api/v1/get/mailbox/all":
+            return httpx.Response(200, json=list(self.mailboxes.values()) or {})
         if request.method == "GET" and path.startswith("/api/v1/get/mailbox/"):
             addr = path.rsplit("/", 1)[1].lower()
             mb = self.mailboxes.get(addr)

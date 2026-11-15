@@ -21,5 +21,7 @@ script overwrite each other.
 
 ## Consequences
 
-PR 23 (rule engine) can be built and tested against fakes, but PR 24 (visual
-editor) cannot ship until 0014 is decided.
+PR 23–25 (rule engine, visual editor, forwarding and vacation) are deferred
+while [0014](0014-mail-rule-owner.md) is proposed as "SOGo stays the owner".
+If the owner accepts 0014, they are dropped; if not, PR 24 still cannot ship
+until 0014 is decided.
