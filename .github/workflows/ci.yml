@@ -1,0 +1,85 @@
+# Runs on every push and pull request: registration app tests, a dependency
+# vulnerability scan, shell script lint and a container build.
+name: CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"   # weekly, so newly published advisories show up without a code change
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Registration app tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: registration
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"   # same as the Dockerfile
+          cache: pip
+          cache-dependency-path: registration/requirements*.txt
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: python -m pytest -q
+
+  audit:
+    name: Dependency vulnerabilities
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pip-audit
+      - run: pip-audit --strict -r registration/requirements.txt
+
+  shellcheck:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: shellcheck --version && shellcheck -S warning scripts/*.sh
+
+  image:
+    name: Container build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: docker build -t mailserver-registration:ci registration
+      - name: App starts and answers /healthz
+        run: |
+          secret=$(python3 -c "import base64,os;print(base64.b32encode(os.urandom(20)).decode())")
+          docker run -d --name reg -p 8000:8000 \
+            -e MAILCOW_API_URL=https://mail.example.com -e MAILCOW_API_KEY=x -e MAIL_DOMAIN=example.com \
+            -e SESSION_SECRET="$(openssl rand -hex 32)" -e ADMIN_USERNAME=admin -e ADMIN_PASSWORD_HASH=x \
+            -e ADMIN_TOTP_SECRET="$secret" -e DATABASE_PATH=/data/r.sqlite3 \
+            mailserver-registration:ci
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8000/join/healthz && exit 0
+            sleep 1
+          done
+          docker logs reg
+          exit 1

@@ -1,0 +1,19 @@
+# Weekly update PRs for the registration app's Python packages, its base
+# image and the CI actions. mailcow itself is updated with its own update.sh.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /registration
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: /registration
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
