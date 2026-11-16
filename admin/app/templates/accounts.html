@@ -2,14 +2,16 @@
 {% block title %}Accounts · {{ brand }}{% endblock %}
 {% block content %}
 <h1>Accounts</h1>
-<p class="muted">Read-only. Suspend, delete, quotas and passwords are in the
-<a href="{{ links.mailcow_admin }}">mailcow admin</a>{% if data and data.identity_provider == "keycloak" %} and
-<a href="{{ links.keycloak_users }}">Keycloak</a>{% endif %} until account lifecycle (PR 16) arrives here.</p>
+<p class="muted">Open an account to suspend, reactivate, change its quota, ask for a new password or schedule
+its deletion. Aliases, app passwords and everything else about a mailbox are in the
+<a href="{{ links.mailcow_admin }}">mailcow admin</a>{% if data and data.identity_provider == "keycloak" %};
+users, groups and sessions in <a href="{{ links.keycloak_users }}">Keycloak</a>{% endif %}.</p>
 {% if data and data.accounts is defined %}
 <div class="scroll"><table class="list">
   <thead><tr><th>Address</th><th>Name</th><th>State</th><th>Used</th><th>Size</th><th>Created</th>{% if data.identity_provider == "keycloak" %}<th>Sign-in</th>{% endif %}</tr></thead>
   <tbody>{% for a in data.accounts %}
-  <tr><td>{{ a.address }}</td><td>{{ a.name }}</td><td>{{ "active" if a.active else "inactive" }}</td>
+  <tr><td><a href="{{ base }}/accounts/{{ a.address | urlencode }}">{{ a.address }}</a></td><td>{{ a.name }}</td>
+      <td>{{ states[a.state] if a.state in states else a.state }}{% if a.deletion_due %}<br><span class="o-failed">deleted {{ a.deletion_due | ts }}</span>{% endif %}</td>
       <td>{{ a.used_mb }} MB</td><td>{{ a.quota_mb }} MB</td><td>{{ a.created }}</td>
       {% if data.identity_provider == "keycloak" %}<td>{{ "Keycloak" if a.identity_linked else "not linked" }}</td>{% endif %}</tr>
   {% else %}<tr><td colspan="7" class="muted">No mailboxes on this domain yet.</td></tr>{% endfor %}</tbody>

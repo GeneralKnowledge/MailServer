@@ -20,6 +20,7 @@ from __future__ import annotations
 import copy
 import json
 import sys
+import uuid
 from pathlib import Path
 
 import jsonschema
@@ -247,6 +248,39 @@ def test_broker_responses_match_contract(spec, broker):
     _check(spec, "traceMessage", client.get("/v1/trace", params={"address": "carol@example.com"}, headers=ADMIN))
     _check(spec, "traceMessage", client.get("/v1/trace", params={"hours": 0}, headers=ADMIN))           # 422
     _check(spec, "traceMessage", client.get("/v1/trace", headers=SIGNUP))                               # 403
+
+
+def test_lifecycle_responses_match_contract(spec, broker, audit_schema):
+    """PR 16 (ADR 0021). No identity provider here, so accounts are not linked."""
+    _, client, db = broker
+    client.post("/v1/accounts", json={**ACCOUNT, "local_part": "zoe"},
+                headers={**SIGNUP, "Idempotency-Key": "z" * 20})
+    a = "/v1/accounts/zoe@example.com"
+
+    def k():
+        return {**ADMIN, "Idempotency-Key": uuid.uuid4().hex}
+    _check(spec, "listAccounts", client.get("/v1/accounts", headers=ADMIN))
+    _check(spec, "getAccount", client.get(a, headers=ADMIN))
+    _check(spec, "getAccount", client.get("/v1/accounts/nobody@example.com", headers=ADMIN))      # 404
+    _check(spec, "suspendAccount", client.post(a + "/suspend", headers=k()))
+    _check(spec, "suspendAccount", client.post(a + "/suspend", json={"stop_receiving": True}, headers=k()))
+    _check(spec, "suspendAccount", client.post(a + "/suspend", headers=ADMIN))                    # 422 no key
+    _check(spec, "reactivateAccount", client.post(a + "/reactivate", headers=k()))
+    _check(spec, "setAccountQuota", client.put(a + "/quota", json={"quota_mb": 2000}, headers=k()))
+    _check(spec, "setAccountQuota", client.put(a + "/quota", json={"quota_mb": 0}, headers=k()))  # 422
+    _check(spec, "forcePasswordReset", client.post(a + "/password-reset", headers=k()))           # 409, no identity
+    _check(spec, "scheduleDeletion", client.post(a + "/deletion", headers=k()))                   # 202
+    _check(spec, "scheduleDeletion", client.post(a + "/deletion", headers=k()))                   # 409
+    _check(spec, "getAccount", client.get(a, headers=ADMIN))
+    _check(spec, "listAccounts", client.get("/v1/accounts", headers=ADMIN))
+    _check(spec, "cancelDeletion", client.delete(a + "/deletion", headers=k()))
+    _check(spec, "cancelDeletion", client.delete(a + "/deletion", headers=k()))                   # 404
+    _check(spec, "suspendAccount", client.post("/v1/accounts/x@other.test/suspend", headers=k()))  # 404
+    events = db.events()
+    assert {"account.suspend", "account.reactivate", "account.quota", "account.password_reset",
+            "account.deletion_scheduled", "account.deletion_cancelled"} <= {e["action"] for e in events}
+    for e in events:
+        jsonschema.validate(e, audit_schema, format_checker=jsonschema.FormatChecker())
 
 
 def _broker_with_keycloak():

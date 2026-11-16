@@ -45,6 +45,12 @@ to `/var/backups/mailserver/restore`, also root only.
 - If the registration container isn't running, the backup **fails** rather
   than quietly leaving out the invitations. On a server without the
   registration app, set `SKIP_REGISTRATION=1` in `backup.env`.
+- A run that finishes (verified and, if set, uploaded) is recorded in the
+  control plane as `backup.completed` with its start time. Account deletions
+  scheduled in the admin console wait for such a backup that started after
+  they were scheduled, so the last copy of a deleted mailbox is always in a
+  backup (PR 16, [ADR 0021](adr/0021-account-lifecycle.md)). If recording it
+  fails, the backup still counts; deletions wait for the next run.
 
 ## Off-site storage
 

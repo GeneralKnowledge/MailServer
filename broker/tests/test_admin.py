@@ -130,7 +130,8 @@ def test_list_accounts_is_read_only_and_uses_the_read_only_key(actx):
     a = r.json()["accounts"]
     assert [x["address"] for x in a] == ["alice@example.com", "bob@example.com"]
     assert a[0] == {"address": "alice@example.com", "name": "Alice", "quota_mb": 2048, "used_mb": 512,
-                    "active": False, "created": "", "identity_linked": True}
+                    "active": False, "state": "inactive", "created": "", "identity_linked": True,
+                    "deletion_due": None}
     assert a[1]["identity_linked"] is False and a[1]["created"] == "2026-11-15 10:00:00"
     assert all(m == "GET" for m, _ in actx.fake.calls)
 

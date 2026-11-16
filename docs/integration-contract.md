@@ -14,7 +14,12 @@ A1–A8 and A10 hold (fake in `broker/tests/fake_keycloak.py`; also run against
 a real Keycloak in CI). A9 holds partly: the account flow in `main.py` names
 mailcow's `keycloak` login source and the `mailcow_template` attribute, so a
 different identity provider would change those two lines as well as the
-adapter.
+adapter. **PR 16** adds typed lifecycle operations to both adapters (mailcow:
+set a mailbox's state or quota, delete it; Keycloak: read, disable/enable,
+sign out, require a new password, delete), each with its fake and the
+Keycloak ones run against a real Keycloak in CI. `main.py` speaks only the
+adapter's state names (`active`, `login_disabled`, `inactive`); mailcow's
+`active` values stay inside `mailcow.py`.
 
 ## An adapter (code in the control plane)
 

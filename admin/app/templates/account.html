@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}{{ data.address or "Account" }} · {{ brand }}{% endblock %}
+{% block content %}
+<p><a href="{{ base }}/accounts">← Accounts</a></p>
+{% if data and data.address is defined %}
+{% set a = data %}
+{% set url = base ~ "/accounts/" ~ (a.address | urlencode) %}
+<h1>{{ a.address }}</h1>
+<table class="facts">
+  <tr><th>Name</th><td>{{ a.name }}</td></tr>
+  <tr><th>State</th><td>{{ states[a.state] }}</td></tr>
+  <tr><th>Mailbox</th><td>{{ a.used_mb }} MB used of {{ a.quota_mb }} MB</td></tr>
+  {% if a.identity %}<tr><th>Sign-in</th><td>{% if not a.identity.linked %}not linked to Keycloak (sign-in and password are mailcow's)
+    {% else %}Keycloak, {{ "enabled" if a.identity.enabled else "disabled" }}{% if a.identity.password_reset_required %}; a new password is asked for at the next sign-in{% endif %}{% endif %}</td></tr>{% endif %}
+  {% if a.deletion %}<tr><th>Deletion</th><td class="o-failed">scheduled {{ a.deletion.scheduled_at | ts }}, due {{ a.deletion.due_at | ts }}.
+    {% if a.deletion.newer_backup %}A newer backup exists.{% else %}Waits for a backup that starts after it was scheduled.{% endif %}</td></tr>{% endif %}
+</table>
+
+<h2>Actions</h2>
+<div class="actions">
+{% if a.deletion %}
+  <form method="post" action="{{ url }}/cancel-delete"><input type="hidden" name="csrf" value="{{ user.csrf }}"><input type="hidden" name="idem" value="{{ idem }}-c">
+    <button type="submit">Cancel the deletion</button> <span class="muted">The account goes back to how it was before.</span></form>
+{% else %}
+  {% if a.state == "active" %}
+  <form method="post" action="{{ url }}/suspend"><input type="hidden" name="csrf" value="{{ user.csrf }}"><input type="hidden" name="idem" value="{{ idem }}-s">
+    <button type="submit">Suspend</button>
+    <label class="check"><input type="checkbox" name="stop_receiving" value="1"> also stop new mail arriving</label>
+    <span class="muted">Nobody can sign in (webmail, mail apps, the account page); mail keeps arriving unless ticked.</span></form>
+  {% else %}
+  <form method="post" action="{{ url }}/reactivate"><input type="hidden" name="csrf" value="{{ user.csrf }}"><input type="hidden" name="idem" value="{{ idem }}-r">
+    <button type="submit">Reactivate</button></form>
+  {% endif %}
+  <form method="post" action="{{ url }}/quota" class="inline"><input type="hidden" name="csrf" value="{{ user.csrf }}"><input type="hidden" name="idem" value="{{ idem }}-q">
+    <label>Quota (MB)<input type="number" name="quota_mb" min="1" value="{{ a.quota_mb }}" required></label>
+    <button type="submit">Set quota</button></form>
+  {% if a.identity and a.identity.linked %}
+  <form method="post" action="{{ url }}/password-reset"><input type="hidden" name="csrf" value="{{ user.csrf }}"><input type="hidden" name="idem" value="{{ idem }}-p">
+    <button type="submit">Ask for a new password</button>
+    <span class="muted">At the next sign-in. Mail apps use app passwords and keep working; suspend to stop them.</span></form>
+  {% endif %}
+  <form method="post" action="{{ url }}/delete" class="danger"><input type="hidden" name="csrf" value="{{ user.csrf }}"><input type="hidden" name="idem" value="{{ idem }}-d">
+    <label>Type the address to schedule its deletion<input name="confirm" autocomplete="off" required></label>
+    <button type="submit">Schedule deletion</button>
+    <span class="muted">Suspended now; deleted with all its mail after the grace period, and only once a newer backup exists. Can be cancelled until then.</span></form>
+{% endif %}
+</div>
+
+<h2>History</h2>
+<div class="scroll"><table class="list">
+  <thead><tr><th>When</th><th>Action</th><th>Outcome</th><th>Who</th><th>Change</th><th>Error</th></tr></thead>
+  <tbody>{% for e in a.history %}
+  <tr class="o-{{ e.outcome }}"><td>{{ e.time | ts }}</td><td>{{ e.action }}</td><td>{{ e.outcome }}</td>
+      <td>{% if e.actor %}{{ e.actor.kind }}: <code>{{ e.actor.id }}</code>{% else %}{{ e.caller }}{% endif %}</td>
+      <td>{% for k, v in (e.changes or {}).items() %}{{ k }}: {{ v.from if v.from is not none else "–" }} → {{ v.to if v.to is not none else "–" }}{% if not loop.last %}; {% endif %}{% endfor %}</td>
+      <td>{{ e.error_kind or "" }}</td></tr>
+  {% else %}<tr><td colspan="6" class="muted">No events about this address.</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endif %}
+{% endblock %}

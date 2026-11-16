@@ -368,7 +368,8 @@ paths:
                     type: array
                     items:
                       type: object
-                      required: [address, name, quota_mb, used_mb, active, created, identity_linked]
+                      required: [address, name, quota_mb, used_mb, active, state, created, identity_linked,
+                                 deletion_due]
                       additionalProperties: false
                       properties:
                         address: {type: string, format: email}
@@ -376,8 +377,10 @@ paths:
                         quota_mb: {type: integer}
                         used_mb: {type: integer}
                         active: {type: boolean}
+                        state: {$ref: "#/components/schemas/AccountState"}
                         created: {type: string, maxLength: 32}
                         identity_linked: {type: boolean}
+                        deletion_due: {type: [string, "null"], format: date-time}
         "401": {$ref: "#/components/responses/Error"}
         "403": {$ref: "#/components/responses/Error"}
         "502": {$ref: "#/components/responses/Error"}
@@ -387,49 +390,131 @@ paths:
     get:
       operationId: getAccount
       tags: [lifecycle]
-      summary: One account with its history.
-      x-avedeus-status: planned
+      summary: One account, its identity, a pending deletion and its audit history (read-only).
+      description: |
+        PR 16. Not audited. `deletion.newer_backup` says whether a backup that
+        started after the deletion was scheduled has completed (ADR 0021).
+      x-avedeus-status: implemented
       x-avedeus-pr: 16
+      security: [{callerToken: [], userToken: []}]
+      parameters:
+        - $ref: "#/components/parameters/UserToken"
       responses:
-        "200": {description: Account.}
-        default: {$ref: "#/components/responses/Error"}
+        "200":
+          description: Account.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, address, name, quota_mb, used_mb, active, state, identity, deletion, history]
+                additionalProperties: false
+                properties:
+                  ok: {const: true}
+                  address: {type: string, format: email}
+                  name: {type: string, maxLength: 100}
+                  quota_mb: {type: integer}
+                  used_mb: {type: integer}
+                  active: {type: boolean}
+                  state: {$ref: "#/components/schemas/AccountState"}
+                  identity:
+                    description: Null when the identity provider is off.
+                    type: [object, "null"]
+                    required: [linked, enabled, password_reset_required]
+                    additionalProperties: false
+                    properties:
+                      linked: {type: boolean}
+                      enabled: {type: [boolean, "null"]}
+                      password_reset_required: {type: [boolean, "null"]}
+                  deletion:
+                    type: [object, "null"]
+                    required: [scheduled_at, due_at, newer_backup]
+                    additionalProperties: false
+                    properties:
+                      scheduled_at: {type: string, format: date-time}
+                      due_at: {type: string, format: date-time}
+                      newer_backup: {type: boolean}
+                  history:
+                    description: The newest 50 audit events about this address (audit-event.schema.json).
+                    type: array
+                    items: {type: object}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
 
   /v1/accounts/{account}/suspend:
     parameters: [{$ref: "#/components/parameters/Account"}]
     post:
       operationId: suspendAccount
       tags: [lifecycle]
-      summary: Keycloak disable, mailcow login off, app passwords revoked.
-      x-avedeus-status: planned
+      summary: Keycloak user disabled and signed out; mailcow login off (mail keeps arriving unless stop_receiving).
+      description: |
+        PR 16, ADR 0021. mailcow state `login_disabled` (its "disallow
+        login", active=2) refuses the password, app passwords and webmail
+        sign-in while mail keeps arriving (roadmap D8); `stop_receiving`
+        turns the mailbox fully off (active=0). App passwords are blocked,
+        not deleted, so reactivating restores them (a named deviation from
+        the earlier "revoked"; ADR 0021).
+      x-avedeus-status: implemented
       x-avedeus-pr: 16
       x-avedeus-audit: account.suspend
-      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      security: [{callerToken: [], userToken: []}]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/UserToken"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                stop_receiving: {type: boolean, default: false}
       responses:
-        "200": {description: Suspended.}
-        default: {$ref: "#/components/responses/Error"}
+        "200": {$ref: "#/components/responses/LifecycleState"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
 
   /v1/accounts/{account}/reactivate:
     parameters: [{$ref: "#/components/parameters/Account"}]
     post:
       operationId: reactivateAccount
       tags: [lifecycle]
-      x-avedeus-status: planned
+      summary: mailcow login on, Keycloak user enabled. Refused while a deletion is scheduled.
+      x-avedeus-status: implemented
       x-avedeus-pr: 16
       x-avedeus-audit: account.reactivate
-      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      security: [{callerToken: [], userToken: []}]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/UserToken"
       responses:
-        "200": {description: Reactivated.}
-        default: {$ref: "#/components/responses/Error"}
+        "200": {$ref: "#/components/responses/LifecycleState"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
 
   /v1/accounts/{account}/quota:
     parameters: [{$ref: "#/components/parameters/Account"}]
     put:
       operationId: setAccountQuota
       tags: [lifecycle]
-      x-avedeus-status: planned
+      summary: Set the mailbox quota (1 to MAX_QUOTA_MB, and not below what it already uses).
+      x-avedeus-status: implemented
       x-avedeus-pr: 16
       x-avedeus-audit: account.quota
-      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      security: [{callerToken: [], userToken: []}]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/UserToken"
       requestBody:
         required: true
         content:
@@ -437,25 +522,65 @@ paths:
             schema:
               type: object
               required: [quota_mb]
+              additionalProperties: false
               properties:
                 quota_mb: {type: integer, minimum: 1}
       responses:
-        "200": {description: Quota set.}
-        default: {$ref: "#/components/responses/Error"}
+        "200":
+          description: Quota set.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, address, quota_mb]
+                additionalProperties: false
+                properties:
+                  ok: {const: true}
+                  address: {type: string, format: email}
+                  quota_mb: {type: integer}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
 
   /v1/accounts/{account}/password-reset:
     parameters: [{$ref: "#/components/parameters/Account"}]
     post:
       operationId: forcePasswordReset
       tags: [lifecycle]
-      summary: Forces a reset at next sign-in through Keycloak.
-      x-avedeus-status: planned
+      summary: Keycloak asks for a new password at the next sign-in; current sessions end.
+      description: |
+        PR 16. Needs a linked Keycloak identity (409 otherwise: mailcow's
+        admin sets passwords of accounts without one). Mail apps use app
+        passwords (ADR 0015) and are not affected; suspend to stop them.
+      x-avedeus-status: implemented
       x-avedeus-pr: 16
       x-avedeus-audit: account.password_reset
-      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      security: [{callerToken: [], userToken: []}]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/UserToken"
       responses:
-        "200": {description: Reset required.}
-        default: {$ref: "#/components/responses/Error"}
+        "200":
+          description: Reset required.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, address, required_action]
+                additionalProperties: false
+                properties:
+                  ok: {const: true}
+                  address: {type: string, format: email}
+                  required_action: {const: UPDATE_PASSWORD}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
 
   /v1/accounts/{account}/deletion:
     parameters: [{$ref: "#/components/parameters/Account"}]
@@ -463,23 +588,60 @@ paths:
       operationId: scheduleDeletion
       tags: [lifecycle]
       summary: Suspend now, delete after the grace period and only after a newer backup exists.
-      x-avedeus-status: planned
+      description: |
+        PR 16, ADR 0021. The account is suspended (mail keeps arriving, so a
+        cancelled deletion loses nothing) and recorded. The deletion job
+        (`python -m broker.purge`, daily) deletes the mailbox and the
+        Keycloak user once `due_at` has passed and a backup that started
+        after `needs_backup_after` has completed.
+      x-avedeus-status: implemented
       x-avedeus-pr: 16
       x-avedeus-audit: account.deletion_scheduled
-      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      security: [{callerToken: [], userToken: []}]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/UserToken"
       responses:
-        "202": {description: Deletion scheduled.}
-        default: {$ref: "#/components/responses/Error"}
+        "202":
+          description: Deletion scheduled.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, address, state, identity, due_at, needs_backup_after]
+                additionalProperties: false
+                properties:
+                  ok: {const: true}
+                  address: {type: string, format: email}
+                  state: {$ref: "#/components/schemas/AccountState"}
+                  identity: {enum: [disabled, not_linked]}
+                  due_at: {type: string, format: date-time}
+                  needs_backup_after: {type: string, format: date-time}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
     delete:
       operationId: cancelDeletion
       tags: [lifecycle]
-      x-avedeus-status: planned
+      summary: Cancel a scheduled deletion; the account returns to the state it had before.
+      x-avedeus-status: implemented
       x-avedeus-pr: 16
       x-avedeus-audit: account.deletion_cancelled
-      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      security: [{callerToken: [], userToken: []}]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/UserToken"
       responses:
-        "200": {description: Deletion cancelled; account reactivated.}
-        default: {$ref: "#/components/responses/Error"}
+        "200": {$ref: "#/components/responses/LifecycleState"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
 
   /v1/me/aliases:
     get:
@@ -625,7 +787,13 @@ components:
       name: account
       in: path
       required: true
-      schema: {type: string, description: Avedeus user id.}
+      schema: {type: string, maxLength: 254, description: "The mailbox address on the mail domain (PR 16)."}
+    UserToken:
+      name: X-User-Token
+      in: header
+      required: false
+      description: The admin's Keycloak access token (ADR 0020); not needed for break-glass from 127.0.0.1.
+      schema: {type: string, maxLength: 8192}
     Alias:
       name: alias
       in: path
@@ -638,8 +806,29 @@ components:
       content:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
+    LifecycleState:
+      description: The account's state after the change (PR 16).
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [ok, address, state, identity]
+            additionalProperties: false
+            properties:
+              ok: {const: true}
+              address: {type: string, format: email}
+              state: {$ref: "#/components/schemas/AccountState"}
+              identity:
+                description: What happened to the linked Keycloak user, if any.
+                enum: [enabled, disabled, not_linked]
 
   schemas:
+    AccountState:
+      description: |
+        mailcow's mailbox state. active (1); login_disabled (2, "disallow
+        login": mail arrives, no password, app password or webmail sign-in
+        works); inactive (0, mail is refused).
+      enum: [active, login_disabled, inactive]
     TraceStage:
       type: object
       required: [stage, time, detail]

@@ -76,3 +76,19 @@ table.settings th { text-align: left; padding-right: 12px; }
 .tabs { flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
 .tabs a[aria-current="page"] { font-weight: 700; text-decoration: none; }
 .tabs .muted { margin-left: auto; }
+
+/* PR 16: one account's page */
+table.facts { border-collapse: collapse; margin: 8px 0 16px; }
+table.facts th { text-align: left; font-weight: 600; padding: 4px 16px 4px 0; vertical-align: top; color: var(--muted); }
+table.facts td { padding: 4px 0; }
+div.actions form { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 0 0 14px;
+                   padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+div.actions form button { margin: 0; }
+div.actions form .muted { flex-basis: 100%; font-size: 0.9em; }
+div.actions form label { margin: 0; }
+div.actions form.inline label { flex: 0 1 200px; }
+label.check { display: inline-flex; gap: 6px; align-items: center; }
+label.check input { width: auto; }
+form.danger button { background: #b42318; }
+form.danger label { flex: 1 1 260px; }
+.o-failed { color: var(--error-fg); }

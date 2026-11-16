@@ -15,6 +15,15 @@ idempotency keys and health. No workflow engine, event bus or plugins.
     GET  /v1/me                the signed-in user's own account     (portal; PR 14)
     GET  /v1/accounts          mailboxes on the mail domain         (admin; PR 15)
     GET  /v1/audit             recent audit events                  (admin; PR 15)
+    GET  /v1/accounts/{a}      one account and its history          (admin; PR 16)
+    POST /v1/accounts/{a}/suspend, /reactivate, /password-reset; PUT .../quota;
+    POST|DELETE /v1/accounts/{a}/deletion                           (admin; PR 16)
+
+Account lifecycle (PR 16, ADR 0021) is admin-only and never public (ADR 0010).
+{a} is the mailbox address. Suspending keeps mail arriving by default
+(mailcow's "disallow login"); a deletion suspends now and the deletion job
+(python -m broker.purge) removes the account after the grace period and only
+once a backup that started after it was scheduled has completed.
 
 Admin calls carry the admin's own Keycloak access token (X-User-Token): it
 must be issued to avedeus-admin, carry the admins group and show a second
@@ -80,6 +89,21 @@ class AccountRequest(CreateRequest):
     # Opaque reference to the sign-up app's invitation, recorded in the audit
     # log. Never the invitation's secret token.
     invitation: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class SuspendRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # False (default): mail keeps arriving, nobody can sign in (roadmap D8).
+    stop_receiving: bool = False
+
+
+class QuotaRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    quota_mb: int
+
+
+def _iso(t: float) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
 
 
 class Refused(Exception):
@@ -262,6 +286,7 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
             return _err(502, e.kind, e.detail)
         if info is None:
             return _err(404, "not_found", "the linked mailbox no longer exists")
+        info.pop("state", None)  # the portal's contract (PR 14) shows active only
         return {"ok": True, "address": addr, **info}
 
     # ---- admin: message trace (PR 34) -------------------------------------------
@@ -300,7 +325,8 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
         except MailcowError as e:
             return _err(502, e.kind, e.detail)
         linked = set(db.links(kc.name)) if kc else set()
-        accounts = [{**b, "identity_linked": b["address"] in linked}
+        due = {d["address"]: _iso(d["due_at"]) for d in db.deletions()}
+        accounts = [{**b, "identity_linked": b["address"] in linked, "deletion_due": due.get(b["address"])}
                     for b in sorted(boxes, key=lambda b: b["address"])]
         return {"ok": True, "identity_provider": s.identity_provider, "accounts": accounts}
 
@@ -313,6 +339,216 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
         if outcome:
             events = [e for e in events if e["outcome"] == outcome]
         return {"ok": True, "events": events[:limit]}
+
+
+    # ---- admin: account lifecycle (PR 16, ADR 0021) -------------------------------
+
+    def account_address(account: str) -> str | None:
+        a = account.strip().lower()
+        if len(a) > 254 or a.count("@") != 1 or any(ch.isspace() for ch in a):
+            return None
+        local, _, domain = a.partition("@")
+        return a if local and domain == s.mail_domain else None
+
+    def mc_call(fn, *a, **kw):
+        try:
+            return fn(*a, **kw)
+        except MailcowError as e:
+            if e.kind == "not_found":
+                raise Refused(404, "not_found", "no such mailbox") from e
+            raise Refused(502, e.kind, f"mailcow: {e.detail}") from e
+
+    def kc_call(fn, *a):
+        try:
+            return fn(*a)
+        except KeycloakError as e:
+            if e.kind == "not_found":
+                raise Refused(409, "conflict", "the linked Keycloak user no longer exists") from e
+            raise Refused(502, e.kind, f"keycloak: {e.detail}") from e
+
+    def mailbox(addr: str) -> dict:
+        info = mc_call(mc.mailbox_info, addr)
+        if info is None:
+            raise Refused(404, "not_found", "no such mailbox")
+        return info
+
+    def identity_of(addr: str) -> str | None:
+        return db.link_get(addr, kc.name) if kc else None
+
+    def lifecycle(request: Request, account: str, *, operation: str, action: str, apply, request_body=None):
+        """Idempotency, one change at a time, and exactly one audit event for
+        every lifecycle call. `apply(addr)` returns (status, payload, changes)."""
+        caller: Caller = request.state.caller
+        key = request.headers.get(IDEMPOTENCY_HEADER) or None
+        addr = account_address(account)
+        ctx = {"operation": operation, "address": addr, "idempotency_key": key,
+               "adapter": kc.name if kc and addr and identity_of(addr) else mc.name}
+
+        def refuse(status: int, kind: str, detail: str) -> JSONResponse:
+            audit(request, action=action, outcome="failed" if status >= 500 else "refused", error_kind=kind, **ctx)
+            return _err(status, kind, detail)
+
+        if key is None:
+            return refuse(422, "invalid", "Idempotency-Key is required")
+        if not 16 <= len(key) <= 128:
+            return refuse(422, "invalid", "Idempotency-Key must be 16-128 characters")
+        if addr is None:
+            return refuse(404, "not_found", f"not a mailbox address on {s.mail_domain}")
+        prior = db.idem_begin(caller.name, key, operation, Store.fingerprint({**(request_body or {}), "account": addr}))
+        if prior and prior[0] == "replay":
+            return JSONResponse(prior[2], status_code=prior[1])
+        if prior:
+            return refuse(409, "conflict", prior[1])
+        try:
+            with create_lock:
+                status, payload, changes = apply(addr)
+        except Refused as e:
+            db.idem_abandon(caller.name, key)
+            return refuse(e.status, e.kind, e.detail)
+        except Exception:
+            db.idem_abandon(caller.name, key)
+            raise
+        audit(request, action=action, outcome="ok", changes=changes, **ctx)
+        db.idem_finish(caller.name, key, status, payload)
+        log.info("%s %s by %s", action, addr, (request.state.actor or {}).get("id"))
+        return JSONResponse(payload, status_code=status)
+
+    def suspend(addr: str, target: str) -> tuple[str, str]:
+        """Keycloak first (browser sign-in ends now), then mailcow. Every step
+        sets a state, so a retry after a failure part-way is safe."""
+        info = mailbox(addr)
+        uid = identity_of(addr)
+        if uid:
+            kc_call(kc.set_enabled, uid, False)
+            kc_call(kc.logout, uid)
+        if info["state"] != target:
+            mc_call(mc.set_mailbox, addr, state=target)
+        return info["state"], "disabled" if uid else "not_linked"
+
+    def restore(addr: str, target: str) -> tuple[str, str]:
+        info = mailbox(addr)
+        uid = identity_of(addr)
+        if info["state"] != target:
+            mc_call(mc.set_mailbox, addr, state=target)
+        if uid and target == "active":
+            kc_call(kc.set_enabled, uid, True)
+        return info["state"], ("enabled" if target == "active" else "disabled") if uid else "not_linked"
+
+    @app.get("/v1/accounts/{account}", operation_id="getAccount")
+    def get_account(account: str):
+        """Read-only: one mailbox, its identity, a pending deletion and its audit history."""
+        addr = account_address(account)
+        if addr is None:
+            return _err(404, "not_found", f"not a mailbox address on {s.mail_domain}")
+        try:
+            info = mailbox(addr)
+        except Refused as e:
+            return _err(e.status, e.kind, e.detail)
+        ident = None
+        if kc:
+            uid = identity_of(addr)
+            ident = {"linked": uid is not None, "enabled": None, "password_reset_required": None}
+            if uid:
+                try:
+                    u = kc.get_user(uid)
+                except KeycloakError as e:
+                    return _err(502, e.kind, f"keycloak: {e.detail}")
+                if u is not None:
+                    ident.update(enabled=u["enabled"], password_reset_required="UPDATE_PASSWORD" in u["required_actions"])
+        d = db.deletion_get(addr)
+        deletion = None
+        if d:
+            backup = db.latest("backup.completed")
+            started = (backup or {}).get("counts", {}).get("started_at", 0)
+            deletion = {"scheduled_at": _iso(d["scheduled_at"]), "due_at": _iso(d["due_at"]),
+                        "newer_backup": started > d["scheduled_at"]}
+        return {"ok": True, "address": addr, **info, "identity": ident, "deletion": deletion,
+                "history": db.history(addr, 50)}
+
+    @app.post("/v1/accounts/{account}/suspend", operation_id="suspendAccount")
+    def suspend_account(account: str, request: Request, body: SuspendRequest | None = None):
+        body = body or SuspendRequest()
+        target = "inactive" if body.stop_receiving else "login_disabled"
+
+        def apply(addr):
+            if db.deletion_get(addr):
+                raise Refused(409, "conflict", "a deletion is scheduled; the account is already suspended")
+            was, ident = suspend(addr, target)
+            return 200, {"ok": True, "address": addr, "state": target, "identity": ident}, \
+                {"state": {"from": was, "to": target}}
+        return lifecycle(request, account, operation="suspendAccount", action="account.suspend", apply=apply,
+                         request_body=body.model_dump())
+
+    @app.post("/v1/accounts/{account}/reactivate", operation_id="reactivateAccount")
+    def reactivate_account(account: str, request: Request):
+        def apply(addr):
+            if db.deletion_get(addr):
+                raise Refused(409, "conflict", "a deletion is scheduled: cancel the deletion instead")
+            was, ident = restore(addr, "active")
+            return 200, {"ok": True, "address": addr, "state": "active", "identity": ident}, \
+                {"state": {"from": was, "to": "active"}}
+        return lifecycle(request, account, operation="reactivateAccount", action="account.reactivate", apply=apply)
+
+    @app.put("/v1/accounts/{account}/quota", operation_id="setAccountQuota")
+    def set_account_quota(account: str, body: QuotaRequest, request: Request):
+        def apply(addr):
+            if not 1 <= body.quota_mb <= s.max_quota_mb:
+                raise Refused(422, "invalid", f"quota must be 1-{s.max_quota_mb} MB")
+            info = mailbox(addr)
+            if body.quota_mb < info["used_mb"]:
+                raise Refused(422, "invalid", f"quota is below what the mailbox already uses ({info['used_mb']} MB)")
+            if body.quota_mb != info["quota_mb"]:
+                mc_call(mc.set_mailbox, addr, quota_mb=body.quota_mb)
+            return 200, {"ok": True, "address": addr, "quota_mb": body.quota_mb}, \
+                {"quota_mb": {"from": info["quota_mb"], "to": body.quota_mb}}
+        return lifecycle(request, account, operation="setAccountQuota", action="account.quota", apply=apply,
+                         request_body=body.model_dump())
+
+    @app.post("/v1/accounts/{account}/password-reset", operation_id="forcePasswordReset")
+    def force_password_reset(account: str, request: Request):
+        def apply(addr):
+            mailbox(addr)
+            uid = identity_of(addr)
+            if uid is None:
+                raise Refused(409, "conflict", "no Keycloak identity for this account: set the password "
+                                               "in mailcow's admin instead")
+            kc_call(kc.require_password_reset, uid)
+            return 200, {"ok": True, "address": addr, "required_action": "UPDATE_PASSWORD"}, \
+                {"required_action": {"from": None, "to": "UPDATE_PASSWORD"}}
+        return lifecycle(request, account, operation="forcePasswordReset", action="account.password_reset",
+                         apply=apply)
+
+    @app.post("/v1/accounts/{account}/deletion", operation_id="scheduleDeletion")
+    def schedule_deletion(account: str, request: Request):
+        def apply(addr):
+            if db.deletion_get(addr):
+                raise Refused(409, "conflict", "a deletion is already scheduled")
+            info = mailbox(addr)
+            # Suspend first: a deletion row only ever exists for a suspended account.
+            target = "inactive" if info["state"] == "inactive" else "login_disabled"
+            was, ident = suspend(addr, target)
+            due = clock() + s.deletion_grace_days * DAY
+            db.deletion_add(addr, due, was)
+            return 202, {"ok": True, "address": addr, "state": target, "identity": ident, "due_at": _iso(due),
+                         "needs_backup_after": _iso(clock())}, \
+                {"state": {"from": was, "to": target}, "deletion_due": {"from": None, "to": _iso(due)}}
+        return lifecycle(request, account, operation="scheduleDeletion", action="account.deletion_scheduled",
+                         apply=apply)
+
+    @app.delete("/v1/accounts/{account}/deletion", operation_id="cancelDeletion")
+    def cancel_deletion(account: str, request: Request):
+        def apply(addr):
+            d = db.deletion_get(addr)
+            if d is None:
+                raise Refused(404, "not_found", "no deletion is scheduled for this account")
+            # Back to the state it had before (a suspended account stays suspended).
+            target = d["prior_state"] if d["prior_state"] in mc.STATE_VALUES else "active"
+            was, ident = restore(addr, target)
+            db.deletion_remove(addr)
+            return 200, {"ok": True, "address": addr, "state": target, "identity": ident}, \
+                {"state": {"from": was, "to": target}, "deletion_due": {"from": _iso(d["due_at"]), "to": None}}
+        return lifecycle(request, account, operation="cancelDeletion", action="account.deletion_cancelled",
+                         apply=apply)
 
     # ---- signup -------------------------------------------------------------
 

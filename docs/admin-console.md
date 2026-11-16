@@ -14,15 +14,19 @@ container (`admin/`), away from the public sign-up app
 | Page | What it shows or does | Comes from |
 |---|---|---|
 | Invitations | create (link shown once), revoke, extend; recent sign-up failures | the sign-up app's internal API (invitations stay in its database) |
-| Accounts | every mailbox on the mail domain: state, size, use, created, linked to Keycloak or not (read-only) | control plane `listAccounts` |
+| Accounts | every mailbox on the mail domain: state, size, use, created, linked to Keycloak or not, deletion due | control plane `listAccounts` |
+| One account (PR 16) | state, identity, pending deletion, history; suspend, reactivate, quota, ask for a new password, schedule or cancel deletion | control plane `getAccount` and the lifecycle operations ([ADR 0021](adr/0021-account-lifecycle.md)) |
 | Message trace | why a message did or didn't arrive (read-only) | control plane `traceMessage` (PR 34) |
 | Audit log | the control plane's events, newest first, filter by action and outcome | control plane `readAudit` |
 
 Everything else stays where it already works
 ([ADR 0016](adr/0016-use-what-exists-first.md)), and the console links there:
-mailboxes (suspend, delete, quota, password, aliases) in **mailcow's admin**
+aliases, app passwords and other mailbox settings in **mailcow's admin**
 (`/admin`), users, groups, sessions and sign-in events in **Keycloak's admin
-console**. Account lifecycle in the console is PR 16.
+console**. What the lifecycle buttons do: [administration.md](administration.md#account-lifecycle-pr-16).
+Each lifecycle form carries a fresh Idempotency-Key, so a double submit
+replays instead of acting twice; scheduling a deletion asks for the address
+to be typed.
 
 ## Who gets in
 
@@ -44,7 +48,8 @@ console**. Account lifecycle in the console is PR 16.
 
 - **Invitations** (create, revoke, extend, who registered, sign-up failures)
   are in the sign-up app's own event log, with the admin's Keycloak id.
-- **Accounts created, refusals, traces** are in the control plane's audit log.
+- **Accounts created, lifecycle changes, deletions, refusals, traces** are in
+  the control plane's audit log (and each account's page shows its own).
 - **Sign-ins** are in Keycloak's events.
 
 This is the cost of keeping invitations in the sign-up app (ADR 0020).
@@ -60,9 +65,10 @@ sudo docker compose exec registration python -m app.cli list
 sudo docker compose exec registration python -m app.cli revoke 3
 sudo docker compose exec registration python -m app.cli extend 3 --days 14
 sudo docker compose exec broker python -m broker.trace --address sam@mail.avedeus.ovh
+sudo docker compose exec broker python -m broker.account show sam@mail.avedeus.ovh
 ```
 
-The trace works by break-glass: from inside the broker container the
+The trace and `broker.account` (PR 16) work by break-glass: from inside the broker container the
 `ADMIN_TOKEN` alone is enough, audited as `admin-break-glass`.
 
 ## Upgrading the sign-up app to PR 15
@@ -93,6 +99,12 @@ event log stay where they are; nothing to migrate.
 
 ## Proven in code
 
+- **PR 16:** unit tests with fakes for every lifecycle operation (refusals,
+  idempotent replays, a failure part-way then a retry, deletion waiting for
+  the grace period and a newer backup, stopped when reactivated in mailcow),
+  the console's account page (CSRF, typed confirmation, key per form) and the
+  break-glass CLI; Keycloak's disable, sign-out and required action against a
+  real Keycloak in CI.
 - Unit tests with fakes: the console (sign-in, refusal without the group or
   the code, IP gate, CSRF, link shown once, idle timeout, sign-out), the
   sign-up app's internal API (token, address, refused through nginx, off
@@ -110,5 +122,5 @@ the sign-up app on `avedeus-edge`).
 ## Removal test (ADR 0017)
 
 Stop the console and remove its nginx location and `ADMIN_CONSOLE_TOKEN`:
-invitations work from the CLI, mailboxes and users from mailcow's and
-Keycloak's consoles, the trace from the broker CLI. Nothing else changes.
+invitations work from the CLI, account lifecycle and the trace from the broker
+CLI, mailboxes and users from mailcow's and Keycloak's consoles. Nothing else changes.

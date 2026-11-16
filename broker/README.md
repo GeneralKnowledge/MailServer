@@ -19,7 +19,7 @@ against all three.
 | `signup` (the registration app) | `SIGNUP_TOKEN` + `SIGNUP_CLIENTS` | `POST /v1/addresses/check`, `POST /v1/accounts` (PR 12), `POST /v1/mailboxes` (refused while Keycloak is on) |
 | `monitoring` (`health-check.sh` via `broker.probe`) | `MONITORING_TOKEN` + `MONITORING_CLIENTS=127.0.0.1` | `GET /v1/health`, `GET /v1/upstream` |
 | `portal` (the account portal, PR 14) | `PORTAL_TOKEN` + `PORTAL_CLIENTS=172.30.240.13`, plus the signed-in user's Keycloak access token in `X-User-Token` (signature, issuer, expiry and `azp` verified against the realm's keys) | `GET /v1/me` (the user's own address, name, quota, state; the user comes only from the token) |
-| `admin` (the admin console, PR 15; `python -m broker.trace` inside the container) | `ADMIN_TOKEN` + `ADMIN_CLIENTS=127.0.0.1,172.30.240.14`, plus from the console the admin's Keycloak access token in `X-User-Token` (signature, issuer, expiry, `azp=avedeus-admin`, `admins` group, `otp` in `amr`); from `127.0.0.1` the token alone (break-glass, ADR 0020) | `GET /v1/trace` (read-only message trace, PR 34; uses `MAILCOW_READ_ONLY_API_KEY` only), `GET /v1/accounts` (read-only list, PR 15), `GET /v1/audit` (recent events, PR 15) |
+| `admin` (the admin console, PR 15; `python -m broker.trace` inside the container) | `ADMIN_TOKEN` + `ADMIN_CLIENTS=127.0.0.1,172.30.240.14`, plus from the console the admin's Keycloak access token in `X-User-Token` (signature, issuer, expiry, `azp=avedeus-admin`, `admins` group, `otp` in `amr`); from `127.0.0.1` the token alone (break-glass, ADR 0020) | `GET /v1/trace` (read-only message trace, PR 34; uses `MAILCOW_READ_ONLY_API_KEY` only), `GET /v1/accounts` (read-only list, PR 15), `GET /v1/audit` (recent events, PR 15), and PR 16 account lifecycle: `GET /v1/accounts/{address}`, `POST .../suspend`, `.../reactivate`, `PUT .../quota`, `POST .../password-reset`, `POST`/`DELETE .../deletion` (ADR 0021; `python -m broker.account` inside the container) |
 | anyone | none | `GET /healthz` (liveness) |
 
 Each caller presents `Authorization: Bearer <its token>` from one of its own
@@ -66,12 +66,28 @@ Its own SQLite database (`CONTROL_PLANE_DB`, default
 `scripts/backup.sh` copies the database (`python -m broker.backup`) and
 `scripts/restore.sh registration` restores it.
 
+After a successful run `scripts/backup.sh` also records `backup.completed`
+with the run's start time (`python -m broker.backup --mark-complete <start>`).
+
 ## Reconciliation
 
 `scripts/reconcile.sh` (daily cron) runs `python -m broker.reconcile`: it
-compares the mailboxes the control plane created with mailcow's list, writes
-a `reconcile.report` audit event, alerts if one we created is gone, and lists
-mailboxes made outside the control plane as "unmanaged". It changes nothing.
+compares the mailboxes the control plane created (and the deletion job has
+not removed) with mailcow's list, writes a `reconcile.report` audit event,
+alerts if one we created is gone, and lists mailboxes made outside the
+control plane as "unmanaged". It changes nothing.
+
+## Account lifecycle and the deletion job (PR 16)
+
+Admin only ([ADR 0021](../docs/adr/0021-account-lifecycle.md)). Every write
+needs an `Idempotency-Key` and writes one audit event. Suspend disables the
+Keycloak user, signs it out and sets mailcow to "disallow login" (`active=2`:
+mail still arrives; app passwords are refused); `stop_receiving` sets
+`active=0`. A scheduled deletion suspends the account and is carried out by
+`scripts/purge-deleted.sh` (daily cron, `python -m broker.purge`) once
+`DELETION_GRACE_DAYS` (30) have passed **and** a backup that started after it
+was scheduled has completed; a mailbox reactivated in mailcow meanwhile is
+not deleted, and the job alerts.
 
 ## Running
 

@@ -231,6 +231,7 @@ is proven on Oracle yet.**
 | Backups, restore, health, alerts | `scripts/` | 4 | extended in M9 |
 | CI and Dependabot | `.github/` | 4 | includes the contract check (PR 8, PR 9) |
 | Daily reconciliation (report only) | `scripts/reconcile.sh`, `broker/broker/reconcile.py` | 4 | compares Keycloak links too once PR 12 exists (PR 31) |
+| Daily deletion job | `scripts/purge-deleted.sh`, `broker/broker/purge.py` | 4 | deletes accounts whose scheduled deletion is due, only after a newer backup (PR 16, ADR 0021) |
 
 ### Sign-up flow today
 

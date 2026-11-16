@@ -3,7 +3,8 @@
 Used only by the control plane, the one component that holds the key. It
 offers typed operations only (version, look up a mailbox, list mailboxes,
 list aliases, add a mailbox, and for the message trace read logs, quarantine
-and queue) and health, never a pass-through to the API
+and queue; PR 16: set a mailbox's state or quota, delete a mailbox) and
+health, never a pass-through to the API
 (ADR 0009, docs/integration-contract.md).
 """
 
@@ -22,7 +23,7 @@ log = logging.getLogger("registration.mailcow")
 
 
 class MailcowError(Exception):
-    """kind: 'taken' | 'password' | 'auth' | 'unavailable' | 'rejected'"""
+    """kind: 'taken' | 'password' | 'auth' | 'unavailable' | 'rejected' | 'not_found'"""
 
     def __init__(self, kind: str, detail: str):
         super().__init__(f"{kind}: {detail}")
@@ -109,15 +110,22 @@ class MailcowClient:
             return any(isinstance(m, dict) and m.get("username", "").lower() == address.lower() for m in data)
         return False
 
-    @staticmethod
-    def _summary(data: dict) -> dict:
+    # mailcow's mailbox `active`: 1 on, 2 "disallow login" (mail still
+    # arrives; mailcow's offboarding state), 0 off (mail is refused).
+    STATES = {"1": "active", "2": "login_disabled", "0": "inactive"}
+    STATE_VALUES = {v: k for k, v in STATES.items()}
+
+    @classmethod
+    def _summary(cls, data: dict) -> dict:
         def mb(v) -> int:
             try:
                 return int(int(v) / 1048576)
             except (TypeError, ValueError):
                 return 0
+        raw = str(data.get("active", "1"))
+        state = cls.STATES.get({"True": "1", "true": "1", "False": "0", "false": "0"}.get(raw, raw), "inactive")
         return {"name": str(data.get("name", ""))[:100], "quota_mb": mb(data.get("quota")),
-                "used_mb": mb(data.get("quota_used")), "active": str(data.get("active", "1")) in ("1", "True", "true")}
+                "used_mb": mb(data.get("quota_used")), "active": state == "active", "state": state}
 
     def mailbox_info(self, address: str) -> dict | None:
         """Quota and state of one mailbox, or None if it doesn't exist."""
@@ -188,7 +196,31 @@ class MailcowClient:
             "tls_enforce_out": "1",
             "authsource": authsource,
         }
-        data = self._request("POST", "/api/v1/add/mailbox", json=payload)
+        self._result(self._request("POST", "/api/v1/add/mailbox", json=payload))
+
+    # ---- lifecycle writes (PR 16, admin only) -----------------------------
+
+    def set_mailbox(self, address: str, *, state: str | None = None, quota_mb: int | None = None) -> None:
+        """Change one mailbox's state (active | login_disabled | inactive) or quota.
+        A mailbox with state login_disabled keeps receiving; mailcow refuses its
+        password, its app passwords and its webmail sign-in."""
+        attr: dict[str, str] = {}
+        if state is not None:
+            attr["active"] = self.STATE_VALUES[state]
+        if quota_mb is not None:
+            attr["quota"] = str(int(quota_mb))
+        if not attr:
+            raise ValueError("nothing to change")
+        self._result(self._request("POST", "/api/v1/edit/mailbox", json={"items": [address], "attr": attr}))
+
+    def delete_mailbox(self, address: str) -> None:
+        """Remove the mailbox and its mail. Only the deletion job calls this,
+        after the grace period and a newer backup (ADR 0021)."""
+        self._result(self._request("POST", "/api/v1/delete/mailbox", json=[address]))
+
+    @staticmethod
+    def _result(data) -> None:
+        """mailcow answers HTTP 200 with [{"type": "success" | "danger" | "error", "msg": ...}]."""
         results = data if isinstance(data, list) else [data]
         for item in results:
             if not isinstance(item, dict):
@@ -202,5 +234,7 @@ class MailcowClient:
                     raise MailcowError("taken", msg)
                 if "password" in low:
                     raise MailcowError("password", msg)
+                if "access_denied" in low:  # what mailcow says for a mailbox that isn't there
+                    raise MailcowError("not_found", msg)
                 raise MailcowError("rejected", msg)
         raise MailcowError("unavailable", f"unexpected response: {str(data)[:300]}")
