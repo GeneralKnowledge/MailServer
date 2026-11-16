@@ -104,6 +104,119 @@ your password manager. Without it the off-site backups can't be decrypted.
 5. Run `scripts/health-check.sh` and the checks in
    [email-testing.md](email-testing.md).
 
+## Restore drill (PR 29)
+
+> **Implemented in code; not proven on server.** CI runs it against a
+> synthetic backup with a real Keycloak dump: it must pass, and must fail once
+> the dump is damaged.
+
+`scripts/restore-drill.sh` proves a backup can be restored without touching
+anything that runs. Monthly, from the off-site copy:
+
+```sh
+echo '0 6 1 * * root /opt/MailServer/scripts/restore-drill.sh --remote >>/var/log/mail-drill.log 2>&1' | sudo tee /etc/cron.d/mail-drill
+sudo /opt/MailServer/scripts/restore-drill.sh            # newest local backup, now
+```
+
+It checks the checksums; reads every mailcow archive to the end; that the
+mail archive holds messages and the crypt archive the mail-crypt key; that
+the secrets a restore needs are there; opens the control-plane database with
+the **current** broker image (in a container without network) and checks the
+audit log is still append-only; checks the invitation database; and restores
+Keycloak's dump into a throwaway Postgres without network and finds the
+`avedeus` realm, its people and clients. Throwaway copies are deleted
+afterwards. The result is in `/var/backups/mailserver/last-drill`; a failure
+sends one alert.
+
+What it does not do: restore mailcow itself (MariaDB, Redis, vmail) or start
+Keycloak on the restored database. That needs a second machine, so the full
+wipe-and-restore stays a manual exercise, recorded in the log below.
+
+## One account (PR 29)
+
+Runbooks, not tools ([ADR 0017](adr/0017-minimum-complete-platform.md)): each
+uses what mailcow, Dovecot and SOGo already do. **Not proven on the server
+yet**; try each once there and note the result in the log below. `A` is the
+address; run from `/opt/mailcow-dockerized`.
+
+### "I deleted messages and emptied the trash"
+
+With lazy-expunge on (`infrastructure/mailcow/configuration/dovecot/extra.conf`,
+copied to `data/conf/dovecot/extra.conf`; mailcow's own option), deleted mail
+stays 7 days in a folder named `.EXPUNGED`, which appears once something is
+in it. The person can move messages back themselves in webmail or their mail
+app. An admin can move everything back:
+
+```sh
+docker compose exec dovecot-mailcow doveadm move -u "$A" INBOX mailbox .EXPUNGED ALL
+```
+
+Without lazy-expunge, or after 7 days: restore the account from a backup (below).
+
+### A mailbox was deleted by mistake
+
+mailcow keeps a deleted mailbox, still encrypted, for `MAILDIR_GC_TIME`
+minutes (default 5 days) under the vmail volume's `_garbage` folder, named
+`<timestamp>_<domain><user>`; SOGo keeps a daily backup of each person's
+contacts, calendars and settings. Follow mailcow's
+[Recover accidentally deleted data](https://docs.mailcow.email/backup_restore/b_n_r-accidental_deletion/):
+re-create the mailbox (and its Keycloak user, with the same address), copy the
+folder back, then
+
+```sh
+docker compose exec dovecot-mailcow doveadm force-resync -u "$A" '*'
+docker compose exec dovecot-mailcow doveadm quota recalc -u "$A"
+docker compose exec -u sogo sogo-mailcow sogo-tool restore -F ALL /etc/sogo "$A"   # after copying its SOGo backup file
+```
+
+An account deleted through the admin console (PR 16) was only deleted after
+its grace period and a newer backup, so restore it from that backup instead.
+
+### One account from a backup
+
+On the same server (the mail is encrypted with this server's keys):
+
+```sh
+B=/var/backups/mailserver/mailcow/mailcow-YYYY-…      # or fetch one: scripts/restore.sh fetch
+zstd -dc "$B/backup_vmail.tar.zst" | tar -t | grep "/${A#*@}/${A%@*}/" | head   # see the path inside
+mkdir -p /var/backups/mailserver/restore/one && \
+  zstd -dc "$B/backup_vmail.tar.zst" | tar -x -C /var/backups/mailserver/restore/one --wildcards "*/${A#*@}/${A%@*}/*"
+```
+
+Copy the extracted user folder over (or next to) the mailbox's folder in the
+vmail volume, then run the `force-resync` and `quota recalc` lines above.
+Messages already in the mailbox stay; restored ones are added.
+
+### Export one account (someone leaves, or asks for their data)
+
+First choice, by the person: their mail app over IMAP with an app password
+(e.g. Thunderbird, then save folders), and in webmail the **Export** item of
+each address book (`.vcf`) and calendar (`.ics`).
+
+By an admin, when the person can't: mail as `.eml` files, decrypted by
+Dovecot, contacts and calendars in SOGo's own backup format, filters as Sieve:
+
+```sh
+OUT=/var/backups/mailserver/export/$A; mkdir -p "$OUT/mail"; chmod 700 /var/backups/mailserver/export
+docker compose exec -T dovecot-mailcow doveadm mailbox status -u "$A" guid '*' > "$OUT/folders.txt"
+docker compose exec -T dovecot-mailcow doveadm search -u "$A" ALL |
+while read -r guid uid; do
+  docker compose exec -T dovecot-mailcow doveadm -f pager fetch -u "$A" text mailbox-guid "$guid" uid "$uid" </dev/null \
+    | sed '1d;$d' > "$OUT/mail/$guid-$uid.eml"
+done
+docker compose exec -u sogo sogo-mailcow sogo-tool backup /tmp/sogo-export "$A" && \
+  docker compose cp "sogo-mailcow:/tmp/sogo-export/$A" "$OUT/sogo-$A" && \
+  docker compose exec sogo-mailcow rm -rf /tmp/sogo-export
+docker compose exec -T dovecot-mailcow doveadm sieve list -u "$A"            # then, per script:
+docker compose exec -T dovecot-mailcow doveadm sieve get -u "$A" NAME > "$OUT/NAME.sieve"
+```
+
+Check one `.eml` opens in a mail program (the `sed` strips doveadm's
+`text:` header line and the record separator; adjust if the server's
+doveadm prints differently). Hand the folder over encrypted, by a channel you
+trust, and delete it afterwards. No export service exists; one will be built
+only if this is needed often (roadmap PR 29).
+
 ## Restore test log
 
 The project isn't complete until at least one restore has succeeded.

@@ -106,7 +106,7 @@ on 2026-11-15: SOGo owns user-facing rules ([ADR 0014](adr/0014-mail-rule-owner.
 |---|---|---|---|---|
 | 27 | ~~Metrics stack~~ **Deferred until justified** | Prometheus, Grafana, exporters and dashboards wait for an operational need. Monitoring starts from mailcow's own (watchdog, UI, logs), our alerts (audit fix 5), backup verification, the delivery probe (PR 30) and the message trace (PR 34) | — | — |
 | 28 | Audit viewer | Control-plane audit: filters by account and date, paging, CSV and JSON-lines export in the admin console. Keycloak's events (sign-ins, admin events) and mailcow's API log are **linked**, not copied: both systems already keep and show them (ADR 0016). **Deviation:** no single merged timeline across the three logs. **Implemented in code**; not proven on server, not deployed | 15 | Yes |
-| 29 | Recovery for the new parts | Backup and restore of Keycloak, Postgres and control-plane data; restore drill script; runbooks; mailcow update procedure; **account export and recovery runbooks** (one account's mail via Dovecot export, contacts, calendars and filters via `sogo-tool`; undelete via lazy-expunge and `MAILDIR_GC_TIME`). No export service until there is a demonstrated need | 11 | Yes |
+| 29 | Recovery for the new parts | Backup and restore of Keycloak, Postgres and control-plane data; restore drill script; runbooks; mailcow update procedure; **account export and recovery runbooks** (one account's mail via Dovecot export, contacts, calendars and filters via `sogo-tool`; undelete via lazy-expunge and `MAILDIR_GC_TIME`). No export service until there is a demonstrated need. **Done in code:** `scripts/restore-drill.sh` (monthly, from the off-site copy: checksums, every archive read to the end, control-plane database opened by the current broker, Keycloak dump restored into a throwaway Postgres; CI runs it against a synthetic backup and a damaged one); runbooks for undelete (lazy-expunge config in `dovecot/extra.conf`, mailcow's own option), a mailbox deleted by mistake, one account from a backup, and export; mailcow, Keycloak and app update procedure. Keycloak/control-plane backup and restore existed (PR 9, 11). **Deviation:** the drill does not restore mailcow itself or start Keycloak (needs a second machine). Not proven on server | 11 | Yes |
 | 30 | Delivery and DNS checks | Daily delivery probe, DNS and blocklist checks | audit 5 | Yes |
 | 31 | Reconciliation | A simple scheduled job that detects and reports drift between Keycloak, mailcow and control-plane links into the one audit trail; safe auto-fixes only | 12 | Yes |
 | 34 | Message trace (admin) | Read-only, admin-only trace that **correlates a message's whole journey** across mailcow's Postfix log, Rspamd history, quarantine and queue into one plain explanation. Details below. **Implemented in code** (`GET /v1/trace`, `python -m broker.trace`; [administration.md](administration.md#message-trace-pr-34)); not proven on Oracle | 9, 15; its own read-only mailcow key | Yes |
@@ -246,6 +246,10 @@ Stay open until tested on the Oracle box.
   published ports through that gateway. If that holds on the server, audit
   fix 6 ("no route from the sign-up container to Postfix") needs a host
   firewall rule allowing only Keycloak to 587.
+- PR 29: the restore drill on the server against the off-site copy;
+  lazy-expunge (mailcow marks it work in progress) and each one-account
+  runbook tried once, in particular the `doveadm fetch` export producing
+  readable `.eml` files; one mailcow update following the written procedure.
 - PR 26: a sign-in mail from the broker reaching a mailbox through
   `172.30.240.1:587` with the certificate checked against the mail host's
   name; if a host firewall is added for audit fix 6, allow the broker

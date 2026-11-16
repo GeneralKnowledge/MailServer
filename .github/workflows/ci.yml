@@ -157,6 +157,17 @@ jobs:
           pip install -r broker/requirements.txt -r broker/requirements-dev.txt -r portal/requirements.txt
           set -a; . infrastructure/identity/identity.env; set +a
           KEYCLOAK_LIVE_SECRET="$CONTROL_PLANE_OIDC_SECRET" python -m pytest -q broker/tests/test_keycloak_live.py
+      # PR 29: the restore drill passes on a good backup (real Keycloak dump,
+      # control-plane database opened by the built broker image) and fails on
+      # a damaged one.
+      - name: Restore drill against a synthetic backup
+        run: |
+          docker build -q -t mailserver-broker:local broker
+          root=$(mktemp -d)
+          folder=$(scripts/ci/drill-fixture.sh "$root")
+          BACKUP_ROOT="$root" scripts/restore-drill.sh
+          head -c 50000 "$folder/extras/keycloak.pgdump" > "$root/cut" && mv "$root/cut" "$folder/extras/keycloak.pgdump"
+          if BACKUP_ROOT="$root" scripts/restore-drill.sh; then echo "drill passed a damaged backup"; exit 1; fi
 
   audit:
     name: Dependency vulnerabilities
