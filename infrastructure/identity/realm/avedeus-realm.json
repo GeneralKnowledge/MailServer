@@ -100,6 +100,41 @@
       ],
       "optionalClientScopes": [],
       "fullScopeAllowed": false
+    },
+    {
+      "clientId": "avedeus-portal",
+      "name": "Avedeus portal (/account)",
+      "description": "The account portal (PR 14): browser sign-in with code + PKCE. Its tokens are verified by the control plane.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${PORTAL_OIDC_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "fullScopeAllowed": false,
+      "rootUrl": "https://${MAIL_HOSTNAME}/account/",
+      "redirectUris": [
+        "https://${MAIL_HOSTNAME}/account/callback"
+      ],
+      "webOrigins": [
+        "https://${MAIL_HOSTNAME}"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "https://${MAIL_HOSTNAME}/account/"
+      },
+      "defaultClientScopes": [
+        "basic",
+        "acr",
+        "profile",
+        "email",
+        "web-origins"
+      ],
+      "optionalClientScopes": []
     }
   ],
   "users": [

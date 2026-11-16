@@ -33,11 +33,12 @@ callers:
 
   portal:
     description: Signed-in user's own account at /account (PR 14).
-    credential: Service credential + the user's Keycloak access token
+    credential: "Service credential (PORTAL_TOKEN + PORTAL_CLIENTS=172.30.240.13) + the user's Keycloak access token in X-User-Token (signature, issuer, expiry, azp=avedeus-portal verified)"
     subject_from: verified Keycloak token (sub), never a request field
-    status: planned
-    enforced: false
+    status: implemented for getOwnAccount (PR 14)
+    enforced: true
     operations:
+      - getOwnAccount       # PR 14: address, name, quota, state
       # Alias operations: PR 10 is parked (2026-11-15). Kept as a sketch,
       # not a planned deliverable; see roadmap "Possible future work".
       - listOwnAliases

@@ -31,6 +31,19 @@ separate internal network that reaches only the control plane and Keycloak.
 - Keycloak's health and metrics endpoints are on its management port (9000),
   which nginx never proxies. Metrics stay off (PR 27 deferred).
 
+## PR 14 addendum: no separate experience network (2026-11-15)
+
+The portal (`172.30.240.13`) is the first experience container, so PR 14
+decides the deferred question: **it joins `avedeus-edge`; no separate
+network.** What a split would protect is already protected without it: the
+portal holds no upstream credential; mailcow's API accepts only `.11`;
+Keycloak's admin API needs a client credential the portal doesn't have; and
+the control plane accepts the portal's token only from `.13` and the user
+only from a verified Keycloak token. A split would add a network and a
+second nginx path for no new protection (ADR 0017). Revisit if an
+experience container ever needs a credential or a port that the others
+must not reach.
+
 ## Consequences
 
 - The sign-up app can reach Keycloak's port on `avedeus-edge`. It holds no

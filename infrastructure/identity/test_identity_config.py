@@ -151,6 +151,14 @@ def test_mailcow_client_redirects_only_to_the_mail_host():
     assert cp["standardFlowEnabled"] is False and cp["redirectUris"] == []
 
 
+def test_portal_client_is_browser_only_with_an_exact_redirect():
+    p = next(c for c in REALM["clients"] if c["clientId"] == "avedeus-portal")
+    assert p["redirectUris"] == ["https://${MAIL_HOSTNAME}/account/callback"]   # exact, no wildcard
+    assert p["standardFlowEnabled"] and not p["serviceAccountsEnabled"]
+    assert p["attributes"]["pkce.code.challenge.method"] == "S256"
+    assert "kc-admin-api" not in p["defaultClientScopes"]
+
+
 def test_no_secrets_committed():
     for c in REALM["clients"]:
         assert re.fullmatch(r"\$\{[A-Z_]+\}", c["secret"]), f"{c['clientId']}: secret must be a placeholder"

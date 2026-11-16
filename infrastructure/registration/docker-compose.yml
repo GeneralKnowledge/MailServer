@@ -55,6 +55,30 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }
 
+  portal:
+    # PR 14. Only with Keycloak (ADR 0006 gate): docker compose --profile identity up -d portal
+    profiles: ["identity"]
+    build: ../../portal
+    image: mailserver-portal:local
+    env_file: portal.env   # its Keycloak client secret and control-plane token; no upstream credential
+    restart: unless-stopped
+    networks:
+      edge:
+        # Fixed address: the control plane only accepts the portal caller from it.
+        ipv4_address: 172.30.240.13
+        aliases: [portal]
+    # No volume: sessions live in memory, nothing to back up.
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 100
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    depends_on: [broker]
+
 volumes:
   registration-data:
   control-plane-data:
