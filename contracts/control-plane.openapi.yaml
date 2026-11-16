@@ -730,20 +730,26 @@ paths:
     get:
       operationId: readAudit
       tags: [audit]
-      summary: Audit events, newest first, filterable by action and outcome (read-only).
+      summary: Audit events, newest first, filterable by action, outcome, account and time (read-only).
       description: |
-        PR 15 (pulled forward from PR 28 in its smallest form, for the admin
-        console): the newest events, optionally only those whose action is
+        PR 15 gave the newest events, optionally only those whose action is
         or starts with `action` (e.g. `account`) and with one outcome. PR 28
-        adds filters by account and time. Not audited itself.
+        adds `address` (exact), `since` and `until` (a UTC date, whole day,
+        or an ISO 8601 date-time; `until` is exclusive for a date-time) and
+        paging: pass `next` back as `before` for the next older page; `next`
+        is null on the last page. Not audited itself.
       x-avedeus-status: implemented
-      x-avedeus-pr: 15
+      x-avedeus-pr: 28
       security: [{callerToken: [], userToken: []}]
       parameters:
         - {name: X-User-Token, in: header, required: false, schema: {type: string, maxLength: 8192}}
         - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 500, default: 100}}
         - {name: action, in: query, required: false, schema: {type: string, maxLength: 64}}
         - {name: outcome, in: query, required: false, schema: {enum: [ok, refused, failed]}}
+        - {name: address, in: query, required: false, schema: {type: string, maxLength: 254}}
+        - {name: since, in: query, required: false, schema: {type: string, maxLength: 32}}
+        - {name: until, in: query, required: false, schema: {type: string, maxLength: 32}}
+        - {name: before, in: query, required: false, schema: {type: integer, minimum: 1}}
       responses:
         "200":
           description: Events in the shape of audit-event.schema.json.
@@ -751,11 +757,12 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [ok, events]
+                required: [ok, events, next]
                 additionalProperties: false
                 properties:
                   ok: {const: true}
                   events: {type: array, items: {type: object}}
+                  next: {type: [integer, "null"], minimum: 1}
         "401": {$ref: "#/components/responses/Error"}
         "403": {$ref: "#/components/responses/Error"}
         "422": {$ref: "#/components/responses/Error"}

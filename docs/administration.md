@@ -5,7 +5,9 @@
 | Task | Where |
 |---|---|
 | Create / revoke / extend invitations, see who registered, see failures | Admin console `https://<mail host>/console/` (with Keycloak, PR 15); until then `python -m app.cli` in the sign-up container ([admin-console.md](admin-console.md)) |
-| List accounts, read the audit log | Admin console (PR 15) |
+| List accounts, read the audit log | Admin console (PR 15); audit filters by account and date, and CSV/JSON export (PR 28) |
+| Who changed something in Keycloak, failed sign-ins | Keycloak admin console → realm `avedeus` → Events (User events, Admin events; kept 30 days). Linked from the console's Audit page |
+| Recent calls to mailcow's API | mailcow → Dashboard → Logs → API (in memory, recent only) |
 | Suspend, reactivate, change quota, ask for a new password, delete an account | Admin console → Accounts → the account (PR 16, audited; [below](#account-lifecycle-pr-16)). Without Keycloak: mailcow UI → E-Mail → Configuration → Mailboxes → Edit |
 | Set a password for an account without a Keycloak identity | mailcow UI, the mailbox's *Password* |
 | Delete a mailbox at once (no grace, no backup check) | mailcow UI, Delete. Avoid: the console's scheduled deletion keeps a backup and an audit trail |

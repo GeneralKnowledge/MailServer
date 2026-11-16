@@ -1,6 +1,7 @@
 """PR 15 and PR 16: the admin console. Fakes only (Keycloak token endpoint, control
 plane, the sign-up app's internal API). Not proven on a server."""
 
+import json
 import re
 from urllib.parse import parse_qs, urlparse
 
@@ -238,3 +239,44 @@ def test_new_link_for_an_invitation(ctx):
     ctx.signup.answers[("POST", "/internal/v1/invitations/1/reissue")] = (409, {"ok": False, "detail": "invitation is redeemed"})
     r = ctx.client.post("/console/invitations/1/reissue", data={"csrf": csrf})
     assert r.status_code == 400 and "invitation is redeemed" in r.text
+
+
+def _audit_pages(request):
+    ev = lambda i, **kw: {"time": f"2026-11-15T10:0{i}:00Z", "action": "account.suspend", "outcome": "ok",  # noqa: E731
+                          "caller": "admin", "actor": {"kind": "admin", "id": "sub-1"},
+                          "subject": {"address": "alice@example.com"}, "error_kind": None, "id": f"e{i}", **kw}
+    if request.url.params.get("before") == "7":
+        return {"ok": True, "events": [ev(1, action="=cmd|' /C calc'!A0")], "next": None}
+    return {"ok": True, "events": [ev(3), ev(2)], "next": 7}
+
+
+def test_audit_filters_paging_and_export(ctx):
+    # PR 28: account and date filters reach the control plane; export walks every page.
+    sign_in(ctx)
+    ctx.cp.answers[("GET", "/v1/audit")] = (200, _audit_pages)
+    t = ctx.client.get("/console/audit", params={"address": "alice@example.com", "since": "2026-11-01",
+                                                 "until": "2026-11-15", "outcome": "ok"}).text
+    sent = ctx.cp.calls[-1][4]
+    assert sent["address"] == "alice@example.com" and sent["since"] == "2026-11-01" and sent["until"] == "2026-11-15"
+    assert "before=7" in t and "Older events" in t and "Keycloak events" in t and "/admin/dashboard" in t
+    assert "format=csv&amp;" in t and "address=alice%40example.com" in t
+
+    r = ctx.client.get("/console/audit/export", params={"format": "csv", "address": "alice@example.com"})
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")
+    assert 'attachment; filename="audit-' in r.headers["content-disposition"]
+    rows = r.text.strip().splitlines()
+    assert rows[0].startswith("time,action,outcome") and len(rows) == 4
+    assert "admin:sub-1" in rows[1] and "'=cmd" in rows[3]          # no spreadsheet formulas
+    pages = [c[4] for c in ctx.cp.calls if c[1] == "/v1/audit"][-2:]
+    assert pages[0]["limit"] == "500" and "before" not in pages[0] and pages[1]["before"] == "7"
+    assert all(p["address"] == "alice@example.com" for p in pages)
+
+    r = ctx.client.get("/console/audit/export", params={"format": "jsonl"})
+    lines = [json.loads(x) for x in r.text.splitlines()]
+    assert [e["id"] for e in lines] == ["e3", "e2", "e1"]
+    assert ctx.client.get("/console/audit/export", params={"format": "xml"}).status_code == 422
+
+
+def test_audit_export_needs_a_signed_in_admin(ctx):
+    r = ctx.client.get("/console/audit/export", follow_redirects=False)
+    assert r.status_code in (302, 303) and not ctx.cp.calls

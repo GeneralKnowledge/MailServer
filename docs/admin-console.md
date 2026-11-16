@@ -17,7 +17,7 @@ container (`admin/`), away from the public sign-up app
 | Accounts | every mailbox on the mail domain: state, size, use, created, linked to Keycloak or not, deletion due | control plane `listAccounts` |
 | One account (PR 16) | state, identity, pending deletion, history; suspend, reactivate, quota, ask for a new password, schedule or cancel deletion | control plane `getAccount` and the lifecycle operations ([ADR 0021](adr/0021-account-lifecycle.md)) |
 | Message trace | why a message did or didn't arrive (read-only) | control plane `traceMessage` (PR 34) |
-| Audit log | the control plane's events, newest first, filter by action and outcome | control plane `readAudit` |
+| Audit log | the control plane's events, newest first; filter by action, outcome, account and dates; older pages; download as CSV or JSON lines (at most 20,000 events; CSV cells that could run as spreadsheet formulas are prefixed with `'`). Links to Keycloak's events (sign-ins and its admin events) and mailcow's API log, which those systems keep themselves (PR 28) | control plane `readAudit` |
 
 Everything else stays where it already works
 ([ADR 0016](adr/0016-use-what-exists-first.md)), and the console links there:

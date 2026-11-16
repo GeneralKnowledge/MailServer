@@ -102,6 +102,23 @@ class QuotaRequest(BaseModel):
     quota_mb: int
 
 
+def _when(v: str | None, name: str, *, end: bool) -> float | None:
+    """A date (YYYY-MM-DD, whole UTC day) or an ISO 8601 date-time, as a timestamp.
+    `until` with a bare date includes that whole day."""
+    from datetime import datetime, timedelta, timezone
+    if not v or not v.strip():
+        return None
+    v = v.strip()
+    try:
+        if len(v) == 10:
+            d = datetime.strptime(v, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            return (d + timedelta(days=1) if end else d).timestamp()
+        d = datetime.fromisoformat(v.replace("Z", "+00:00"))
+        return (d if d.tzinfo else d.replace(tzinfo=timezone.utc)).timestamp()
+    except ValueError:
+        raise Refused(422, "invalid", f"{name}: use YYYY-MM-DD or an ISO 8601 date-time") from None
+
+
 def _iso(t: float) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
 
@@ -332,14 +349,15 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
 
     @app.get("/v1/audit", operation_id="readAudit")
     def read_audit(limit: int = Query(100, ge=1, le=500), action: str | None = Query(None, max_length=64),
-                   outcome: str | None = Query(None, pattern="^(ok|refused|failed)$")):
-        events = db.events(5000 if action or outcome else limit)
-        if action:
-            events = [e for e in events if e["action"] == action or e["action"].startswith(action.rstrip(".") + ".")]
-        if outcome:
-            events = [e for e in events if e["outcome"] == outcome]
-        return {"ok": True, "events": events[:limit]}
-
+                   outcome: str | None = Query(None, pattern="^(ok|refused|failed)$"),
+                   address: str | None = Query(None, max_length=254),
+                   since: str | None = Query(None, max_length=32), until: str | None = Query(None, max_length=32),
+                   before: int | None = Query(None, ge=1)):
+        # PR 28: filters by account and time, and a cursor for older pages.
+        t0, t1 = _when(since, "since", end=False), _when(until, "until", end=True)
+        events, nxt = db.query(action=action, outcome=outcome, address=(address or "").strip() or None,
+                               since=t0, until=t1, before=before, limit=limit)
+        return {"ok": True, "events": events, "next": nxt}
 
     # ---- admin: account lifecycle (PR 16, ADR 0021) -------------------------------
 

@@ -53,7 +53,7 @@ callers:
     description: "Admin console in its own container at /console (PR 15; mailcow keeps /admin), and the admin CLI on the server (python -m broker.trace, break-glass)."
     credential: "Bearer token (ADMIN_TOKEN) + source IP (ADMIN_CLIENTS=127.0.0.1,172.30.240.14) + from the console, the admin's Keycloak access token in X-User-Token (signature, issuer, expiry, azp=avedeus-admin, group admins, amr contains otp). From 127.0.0.1 the token alone (break-glass, audited as actor token/admin-break-glass). ADR 0020."
     subject_from: verified Keycloak token (sub) as the actor; lifecycle operations act on the mailbox address in the path; the trace, accounts list and audit read have no subject
-    status: implemented (traceMessage PR 34; listAccounts, readAudit PR 15; getAccount and lifecycle PR 16)
+    status: implemented (traceMessage PR 34; listAccounts PR 15, readAudit PR 15/28; getAccount and lifecycle PR 16)
     enforced: true
     operations:
       - listAccounts        # PR 15: read-only
@@ -64,7 +64,7 @@ callers:
       - forcePasswordReset
       - scheduleDeletion
       - cancelDeletion
-      - readAudit           # PR 15: read-only, recent events (filters by account and time: PR 28)
+      - readAudit           # PR 15: read-only; PR 28: filters by account and time, paging
       - traceMessage        # PR 34: read-only message trace, admin only
 
   pm-token:

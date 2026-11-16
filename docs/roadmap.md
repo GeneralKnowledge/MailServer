@@ -105,7 +105,7 @@ on 2026-11-15: SOGo owns user-facing rules ([ADR 0014](adr/0014-mail-rule-owner.
 | PR | Title | Delivers | Depends on | Server |
 |---|---|---|---|---|
 | 27 | ~~Metrics stack~~ **Deferred until justified** | Prometheus, Grafana, exporters and dashboards wait for an operational need. Monitoring starts from mailcow's own (watchdog, UI, logs), our alerts (audit fix 5), backup verification, the delivery probe (PR 30) and the message trace (PR 34) | — | — |
-| 28 | Audit viewer | Admin view and export of control-plane, Keycloak admin and mailcow API events | 15 | Yes |
+| 28 | Audit viewer | Control-plane audit: filters by account and date, paging, CSV and JSON-lines export in the admin console. Keycloak's events (sign-ins, admin events) and mailcow's API log are **linked**, not copied: both systems already keep and show them (ADR 0016). **Deviation:** no single merged timeline across the three logs. **Implemented in code**; not proven on server, not deployed | 15 | Yes |
 | 29 | Recovery for the new parts | Backup and restore of Keycloak, Postgres and control-plane data; restore drill script; runbooks; mailcow update procedure; **account export and recovery runbooks** (one account's mail via Dovecot export, contacts, calendars and filters via `sogo-tool`; undelete via lazy-expunge and `MAILDIR_GC_TIME`). No export service until there is a demonstrated need | 11 | Yes |
 | 30 | Delivery and DNS checks | Daily delivery probe, DNS and blocklist checks | audit 5 | Yes |
 | 31 | Reconciliation | A simple scheduled job that detects and reports drift between Keycloak, mailcow and control-plane links into the one audit trail; safe auto-fixes only | 12 | Yes |

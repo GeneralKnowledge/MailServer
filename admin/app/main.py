@@ -24,8 +24,11 @@ which the console links to. Sessions live in memory.
 from __future__ import annotations
 
 import base64
+import csv
 import hashlib
+import io
 import ipaddress
+import json
 import logging
 import secrets
 import threading
@@ -36,7 +39,7 @@ from pathlib import Path
 from urllib.parse import quote, urlencode
 
 import httpx
-from fastapi import APIRouter, FastAPI, Form, Request
+from fastapi import APIRouter, FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -454,15 +457,70 @@ def create_app(settings: Settings | None = None, *, oidc: OidcClient | None = No
         params = {k: v for k, v in form.items() if v}
         return cp_page(request, u, "trace.html", "/v1/trace", "trace", params, form=form)
 
+    def audit_filters(action: str, outcome: str, address: str, since: str, until: str) -> dict:
+        return {**({"action": action[:64]} if action else {}),
+                **({"outcome": outcome} if outcome in ("ok", "refused", "failed") else {}),
+                **({"address": address.strip()[:254]} if address.strip() else {}),
+                **({"since": since[:32]} if since else {}), **({"until": until[:32]} if until else {})}
+
     @r.get("/audit")
-    def audit(request: Request, action: str = "", outcome: str = ""):
+    def audit(request: Request, action: str = "", outcome: str = "", address: str = "", since: str = "",
+              until: str = "", before: int = 0):
         u = current(request)
         if not u:
             return to_login()
-        params = {"limit": 200, **({"action": action[:64]} if action else {}),
-                  **({"outcome": outcome} if outcome in ("ok", "refused", "failed") else {})}
-        return cp_page(request, u, "audit.html", "/v1/audit", "audit", params, form={"action": action,
-                                                                                    "outcome": outcome})
+        f = audit_filters(action, outcome, address, since, until)
+        params = {"limit": 200, **f, **({"before": before} if before > 0 else {})}
+        return cp_page(request, u, "audit.html", "/v1/audit", "audit", params,
+                       form={"action": action, "outcome": outcome, "address": address, "since": since,
+                             "until": until}, query=urlencode(f))
+
+    # PR 28: export what the filters select, as CSV or JSON lines, at most EXPORT_MAX events.
+    EXPORT_MAX = 20000
+    CSV_COLUMNS = ("time", "action", "outcome", "caller", "actor", "address", "error_kind", "adapter",
+                   "operation", "request_id", "id")
+
+    def csv_cell(v) -> str:
+        v = "" if v is None else str(v)
+        return "'" + v if v[:1] in ("=", "+", "-", "@", "\t", "\r") else v   # no formulas in spreadsheets
+
+    @r.get("/audit/export")
+    def audit_export(request: Request, fmt: str = Query("csv", alias="format", pattern="^(csv|jsonl)$"),
+                     action: str = "", outcome: str = "", address: str = "", since: str = "", until: str = ""):
+        u = current(request)
+        if not u:
+            return to_login()
+        f = audit_filters(action, outcome, address, since, until)
+        events, before = [], None
+        while len(events) < EXPORT_MAX:
+            code, data = call("cp", u, "GET", "/v1/audit",
+                              params={"limit": 500, **f, **({"before": before} if before else {})})
+            if code != 200:
+                if signed_out_by_cp(code, data):
+                    sessions.drop(request.session.pop("sid", None))
+                return problem(request, 502 if code != 422 else 400, "Export failed",
+                               data.get("detail") or "The control plane isn't answering.")
+            events += data.get("events", [])
+            before = data.get("next")
+            if not before:
+                break
+        events = events[:EXPORT_MAX]
+        stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime(clock()))
+        if fmt == "jsonl":
+            body = "".join(json.dumps(e, separators=(",", ":"), sort_keys=True) + "\n" for e in events)
+            media, name = "application/x-ndjson", f"audit-{stamp}.jsonl"
+        else:
+            buf = io.StringIO()
+            w = csv.writer(buf)
+            w.writerow(CSV_COLUMNS)
+            for e in events:
+                actor = e.get("actor") or {}
+                row = {**e, "actor": f"{actor.get('kind', '')}:{actor.get('id', '')}" if actor else "",
+                       "address": (e.get("subject") or {}).get("address")}
+                w.writerow([csv_cell(row.get(c)) for c in CSV_COLUMNS])
+            body, media, name = buf.getvalue(), "text/csv; charset=utf-8", f"audit-{stamp}.csv"
+        return Response(body, media_type=media, headers={"Content-Disposition": f'attachment; filename="{name}"',
+                                                         "Cache-Control": "no-store"})
 
     app.include_router(r)
     return app

@@ -4,6 +4,7 @@ own verified Keycloak token (ADR 0020); invitations stay in the sign-up app.
 Fakes and locally signed tokens only. Not proven on a server.
 """
 
+import time
 import httpx
 import pytest
 from conftest import AUTH, MON_AUTH, Clock
@@ -156,3 +157,23 @@ def test_without_identity_provider_only_break_glass_works(env):
     assert TestClient(app).get("/v1/accounts", headers=as_admin()).status_code == 403
     assert TestClient(app, client=("127.0.0.1", 1)).get("/v1/accounts", headers=BEARER).status_code == 200
 
+
+
+def test_read_audit_by_account_time_and_pages(actx):
+    # PR 28: filters by account and time, and a cursor for older pages.
+    st, clock = actx.store, actx.clock
+    for i, addr in enumerate(["alice@example.com", "bob@example.com", "alice@example.com"]):
+        clock.t = 1_800_000_000 + i * 86400          # 2027-01-15, -16, -17 (UTC)
+        st.audit(caller="admin", action="account.suspend", outcome="ok", address=addr)
+    get = lambda **p: actx.client.get("/v1/audit", params=p, headers=as_admin())  # noqa: E731
+    ev = get(address="ALICE@example.com").json()["events"]
+    assert [e["subject"]["address"] for e in ev] == ["alice@example.com"] * 2
+    day = time.strftime("%Y-%m-%d", time.gmtime(1_800_000_000 + 86400))
+    ev = get(since=day, until=day, action="account").json()["events"]
+    assert [e["subject"]["address"] for e in ev] == ["bob@example.com"]
+    first = get(limit=2, action="account").json()
+    assert len(first["events"]) == 2 and first["next"]
+    rest = get(limit=2, action="account", before=first["next"]).json()
+    assert [e["subject"]["address"] for e in rest["events"]] == ["alice@example.com"] and rest["next"] is None
+    r = get(since="yesterday")
+    assert r.status_code == 422 and r.json()["kind"] == "invalid"
