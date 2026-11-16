@@ -11,6 +11,7 @@ idempotency keys and health. No workflow engine, event bus or plugins.
     POST /v1/addresses/check   is <local_part>@<domain> free?      (signup)
     POST /v1/accounts          create an account: identity, then mailbox (signup; PR 12)
     POST /v1/mailboxes         create <local_part>@<domain>        (signup; superseded by /v1/accounts)
+    GET  /v1/trace             read-only message trace             (admin; PR 34)
 
 Every caller has its own token and source addresses (config.py), and may use
 only the operations in capabilities.py. Every state-changing call and every
@@ -29,7 +30,7 @@ import threading
 import time
 import uuid
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -41,6 +42,7 @@ from .keycloak import KeycloakClient, KeycloakError
 from .mailcow import MailcowClient, MailcowError
 from .rules import local_part_error
 from .store import Store
+from . import trace as tracing
 
 log = logging.getLogger("broker")
 DAY = 86400
@@ -90,7 +92,8 @@ def _client_allowed(host: str, allowed: tuple[str, ...]) -> bool:
 
 
 def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | None = None,
-               store: Store | None = None, keycloak: KeycloakClient | None = None, clock=time.time) -> FastAPI:
+               store: Store | None = None, keycloak: KeycloakClient | None = None,
+               mailcow_read_only: MailcowClient | None = None, clock=time.time) -> FastAPI:
     s = settings or load_settings()
     mc = mailcow or MailcowClient(s.mailcow_api_url, s.mailcow_api_key, s.mailcow_tls_hostname, s.mailcow_verify_tls)
     db = store or Store(s.db_path, clock=clock)
@@ -99,6 +102,10 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
         kc = keycloak or KeycloakClient(s.keycloak_url, s.keycloak_realm, s.keycloak_client_id,
                                         s.keycloak_client_secret)
     adapters = [mc] + ([kc] if kc else [])
+    # The trace's own read-only mailcow client: a bug in it cannot write (PR 34).
+    mc_ro = mailcow_read_only or (MailcowClient(s.mailcow_api_url, s.mailcow_read_only_api_key,
+                                                s.mailcow_tls_hostname, s.mailcow_verify_tls)
+                                  if s.mailcow_read_only_api_key else None)
     create_lock = threading.Lock()  # one creation at a time: keeps the cap and checks exact
 
     def host_of(request: Request) -> str:
@@ -190,6 +197,31 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
             return {"ok": True, "mailcow_version": mc.version()}
         except MailcowError as e:
             return _err(502, e.kind, e.detail)
+
+    # ---- admin: message trace (PR 34) -------------------------------------------
+
+    @app.get("/v1/trace", operation_id="traceMessage")
+    def trace_message(request: Request, address: str | None = Query(None, max_length=254),
+                      message_id: str | None = Query(None, max_length=998),
+                      hours: int = Query(24, ge=1, le=720)):
+        addr = address.strip().lower() if address else None
+        ctx = {"operation": "traceMessage", "address": addr, "adapter": mc.name}
+        if addr and (addr.count("@") != 1 or any(ch.isspace() for ch in addr)):
+            audit(request, action="message.trace", outcome="refused", error_kind="invalid", **ctx)
+            return _err(422, "invalid", "address must be one email address")
+        if mc_ro is None:
+            audit(request, action="message.trace", outcome="failed", error_kind="unavailable", **ctx)
+            return _err(502, "unavailable", "message trace needs MAILCOW_READ_ONLY_API_KEY in broker.env")
+        until = clock()
+        try:
+            data = tracing.collect(mc_ro, s.trace_log_lines)
+        except MailcowError as e:
+            audit(request, action="message.trace", outcome="failed", error_kind=e.kind, **ctx)
+            return _err(502, e.kind, e.detail)
+        result = tracing.trace(**data, address=addr, message_id=message_id, since=until - hours * 3600, until=until)
+        audit(request, action="message.trace", outcome="ok",
+              counts={"messages": len(result["messages"]), "rejections": len(result["rejections"])}, **ctx)
+        return result
 
     # ---- signup -------------------------------------------------------------
 

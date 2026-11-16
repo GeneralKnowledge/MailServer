@@ -198,6 +198,43 @@ paths:
         "429": {$ref: "#/components/responses/Error"}
         "502": {$ref: "#/components/responses/Error"}
 
+  /v1/trace:
+    get:
+      operationId: traceMessage
+      tags: [diagnostics]
+      summary: Read-only, admin-only message trace across mailcow's logs.
+      description: |
+        PR 34. Follows messages by Postfix queue ID and Message-ID across
+        mailcow's Postfix log, Rspamd history, quarantine, mail queue and
+        Dovecot delivery log, and explains each stage it can establish:
+        rejected during SMTP (blocklist, unknown recipient, spam filter,
+        policy), accepted, spam check, quarantined, deferred, accepted by the
+        destination server, delivered to a mailbox (with folder where known),
+        bounced, still queued; or that nothing matched in the retained log.
+
+        Read-only: changes nothing, reads mailcow with its own read-only key,
+        and never returns message content or subjects. Every answer carries
+        the limits of what it can tell and the oldest log line searched.
+        Every trace is audited (counts only). At least one of the filters,
+        or just a window, may be given.
+      x-avedeus-status: implemented
+      x-avedeus-pr: 34
+      x-avedeus-audit: message.trace
+      parameters:
+        - {name: address, in: query, required: false, schema: {type: string, maxLength: 254}}
+        - {name: message_id, in: query, required: false, schema: {type: string, maxLength: 998}}
+        - {name: hours, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 720, default: 24}}
+      responses:
+        "200":
+          description: What could be established, and what could not.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/TraceResult"}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
+
   /v1/accounts:
     post:
       operationId: createAccount
@@ -472,7 +509,7 @@ components:
       type: http
       scheme: bearer
       description: |
-        Each caller's own credential (SIGNUP_TOKEN, MONITORING_TOKEN, ...),
+        Each caller's own credential (SIGNUP_TOKEN, MONITORING_TOKEN, ADMIN_TOKEN, ...),
         also checked against that caller's allowed source addresses. Which
         operations each caller may use is capabilities.yaml, enforced since
         PR 9. 401 = no valid token; 403 = wrong address or operation not in
@@ -508,6 +545,61 @@ components:
           schema: {$ref: "#/components/schemas/Error"}
 
   schemas:
+    TraceStage:
+      type: object
+      required: [stage, time, detail]
+      properties:
+        stage:
+          enum: [never_reached, window_short, rejected_smtp, accepted, spam_check, quarantined,
+                 deferred, sent_remote, delivered_local, bounced, queued]
+        time: {type: [number, "null"]}
+        recipient: {type: string}
+        detail: {type: string}
+    TraceResult:
+      type: object
+      required: [ok, found, window, messages, rejections, truncated, notes, limits]
+      additionalProperties: false
+      properties:
+        ok: {const: true}
+        found: {type: boolean}
+        window:
+          type: object
+          required: [since, until, oldest_log_entry, postfix_lines]
+          properties:
+            since: {type: number}
+            until: {type: number}
+            oldest_log_entry: {type: [number, "null"]}
+            postfix_lines: {type: integer}
+        messages:
+          type: array
+          maxItems: 50
+          items:
+            type: object
+            required: [queue_id, message_id, from, to, received_at, stages]
+            additionalProperties: false
+            properties:
+              queue_id: {type: string}
+              message_id: {type: [string, "null"]}
+              from: {type: [string, "null"]}
+              to: {type: array, items: {type: string}}
+              received_at: {type: number}
+              stages: {type: array, items: {$ref: "#/components/schemas/TraceStage"}}
+        rejections:
+          type: array
+          maxItems: 50
+          items:
+            type: object
+            required: [stage, time, to, reason_kind, detail]
+            properties:
+              stage: {const: rejected_smtp}
+              time: {type: number}
+              from: {type: [string, "null"]}
+              to: {type: string}
+              reason_kind: {enum: [blocklist, unknown_recipient, spam_filter, policy]}
+              detail: {type: string}
+        truncated: {type: boolean}
+        notes: {type: array, items: {$ref: "#/components/schemas/TraceStage"}}
+        limits: {type: array, items: {type: string}, minItems: 1}
     ErrorKind:
       type: string
       enum:

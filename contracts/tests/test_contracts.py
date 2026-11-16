@@ -141,6 +141,14 @@ def test_only_admin_gets_lifecycle_and_audit(spec, caps):
             assert not tags & {"lifecycle", "audit"}, f"{name} must not get {op_id}"
 
 
+def test_only_admin_gets_diagnostics(spec, caps):
+    ops = by_id(spec)
+    for name, row in caps["callers"].items():
+        for op_id in row["operations"]:
+            if "diagnostics" in ops[op_id][2].get("tags", []):
+                assert name == "admin", f"{name} must not get {op_id} (PR 34: admin only)"
+
+
 def test_monitoring_gets_health_only(spec, caps):
     ops = by_id(spec)
     for op_id in caps["callers"]["monitoring"]["operations"]:
@@ -162,7 +170,8 @@ def test_tokens_cannot_exceed_portal(caps):
 
 SIGNUP = {"Authorization": "Bearer " + "s" * 40}
 MONITORING = {"Authorization": "Bearer " + "m" * 40}
-CALLER_AUTH = {"signup": SIGNUP, "monitoring": MONITORING}
+ADMIN = {"Authorization": "Bearer " + "a" * 40}
+CALLER_AUTH = {"signup": SIGNUP, "monitoring": MONITORING, "admin": ADMIN}
 
 
 def _broker_modules():
@@ -182,6 +191,7 @@ def broker():
         "MAILCOW_API_URL": "https://mail.example.com", "MAILCOW_API_KEY": fake_mailcow.API_KEY,
         "MAIL_DOMAIN": "example.com", "SIGNUP_TOKEN": "s" * 40, "SIGNUP_CLIENTS": "*",
         "MONITORING_TOKEN": "m" * 40, "MONITORING_CLIENTS": "*", "MAX_CREATES_PER_DAY": "1",
+        "ADMIN_TOKEN": "a" * 40, "ADMIN_CLIENTS": "*", "MAILCOW_READ_ONLY_API_KEY": fake_mailcow.RO_API_KEY,
     })
     fake = fake_mailcow.FakeMailcow()
     mc = mailcow.MailcowClient(settings.mailcow_api_url, settings.mailcow_api_key, transport=fake.transport())
@@ -231,6 +241,9 @@ def test_broker_responses_match_contract(spec, broker):
     _check(spec, "createMailbox", client.post("/v1/mailboxes", json=body))                               # 401
     _check(spec, "createMailbox", client.post("/v1/mailboxes", json=body, headers=MONITORING))           # 403
     _check(spec, "upstreamCheck", client.get("/v1/upstream", headers=MONITORING))
+    _check(spec, "traceMessage", client.get("/v1/trace", params={"address": "carol@example.com"}, headers=ADMIN))
+    _check(spec, "traceMessage", client.get("/v1/trace", params={"hours": 0}, headers=ADMIN))           # 422
+    _check(spec, "traceMessage", client.get("/v1/trace", headers=SIGNUP))                               # 403
 
 
 def _broker_with_keycloak():
@@ -376,13 +389,15 @@ def test_events_the_broker_writes_match_the_audit_schema(broker, audit_schema):
     client.post("/v1/mailboxes", json={"x": 1}, headers=SIGNUP)                  # request.invalid
     client.post("/v1/mailboxes", json=body)                                      # auth.refused unknown
     client.get("/v1/upstream", headers=SIGNUP)                                   # auth.refused forbidden
+    client.get("/v1/trace", params={"address": "carol@example.com"}, headers=ADMIN)  # message.trace
     reconcile = __import__("broker.reconcile", fromlist=["run"])
     _, config, mailcow, _, _, fake_mailcow = _broker_modules()
     reconcile.run(mailcow.MailcowClient("https://mail.example.com", fake_mailcow.API_KEY,
                                         transport=fake_mailcow.FakeMailcow().transport()),
                   db, "example.com", out=lambda _: None)
     events = db.events()
-    assert {e["action"] for e in events} >= {"mailbox.create", "request.invalid", "auth.refused", "reconcile.report"}
+    assert {e["action"] for e in events} >= {"mailbox.create", "request.invalid", "auth.refused", "reconcile.report",
+                                              "message.trace"}
     for e in events:
         jsonschema.validate(e, audit_schema, format_checker=jsonschema.FormatChecker())
 

@@ -49,11 +49,11 @@ callers:
       # Rules (PR 23-25) are dropped: SOGo owns them (ADR 0014).
 
   admin:
-    description: Admin console in its own container at /admin (PR 15).
-    credential: Service credential + admin's Keycloak token in the admin group, TOTP, allowed IP
-    subject_from: verified Keycloak token
-    status: planned
-    enforced: false
+    description: Admin console in its own container at /admin (PR 15). Until then, the admin CLI on the server (python -m broker.trace).
+    credential: "PR 34: bearer token (ADMIN_TOKEN) + source IP (ADMIN_CLIENTS=127.0.0.1, i.e. from inside the broker container). PR 15 adds the admin's Keycloak token in the admin group, TOTP and the admin console's address."
+    subject_from: verified Keycloak token (from PR 15); the trace has no subject, only a query
+    status: implemented for traceMessage (PR 34); the rest planned (PR 15, 16, 28)
+    enforced: true
     operations:
       - listAccounts
       - getAccount
@@ -64,6 +64,7 @@ callers:
       - scheduleDeletion
       - cancelDeletion
       - readAudit
+      - traceMessage        # PR 34: read-only message trace, admin only
 
   pm-token:
     description: Password managers (Bitwarden etc.) acting for one user. Parked with PR 10 (2026-11-15).

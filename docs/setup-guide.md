@@ -181,7 +181,8 @@ At `https://mail.avedeus.ovh/admin` (user `admin`, password `moohoo`):
 3. *System → Configuration → Options → Password policy*: length 12, require
    lowercase, uppercase and numbers.
 4. *System → Configuration → Access → API*: confirm the read-write key shows
-   `172.30.240.11` only (the broker), and the read-only key is off.
+   `172.30.240.11` only (the broker), and the read-only key is off (it is
+   turned on later only for the message trace; see administration.md).
 
 **Check B:** `sudo /opt/MailServer/scripts/health-check.sh` ends with `HEALTHY`
 (the registration line fails until Part D and the backup lines until Part E;

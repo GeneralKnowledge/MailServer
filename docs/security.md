@@ -24,8 +24,9 @@ These live in mailcow's database, so they are steps in
 - Admin: change `moohoo`, turn on TOTP, and use a separate admin account name if preferred.
 - *System → Configuration → Options → Password policy*: minimum length 12, require
   lower/upper/number (matches the invite site).
-- *Access → API*: read-write key only, allowed from `172.30.240.11` (the broker) only; leave
-  the read-only key disabled.
+- *Access → API*: read-write key allowed from `172.30.240.11` (the broker) only. The
+  read-only key stays disabled unless the message trace (PR 34) is used; then it too is
+  allowed from `172.30.240.11` only, and only the trace uses it.
 - Domain *avedeus.ovh*: DKIM 2048-bit; set mailbox count and total quota limits
   so a bug can't create unlimited mailboxes.
 - After deliverability tests pass: DMARC `p=quarantine`, and MTA-STS

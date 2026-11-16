@@ -2,7 +2,8 @@
 
 Used only by the control plane, the one component that holds the key. It
 offers typed operations only (version, look up a mailbox, list mailboxes,
-list aliases, add a mailbox) and health, never a pass-through to the API
+list aliases, add a mailbox, and for the message trace read logs, quarantine
+and queue) and health, never a pass-through to the API
 (ADR 0009, docs/integration-contract.md).
 """
 
@@ -117,6 +118,25 @@ class MailcowClient:
 
     def address_taken(self, address: str) -> bool:
         return self.mailbox_exists(address) or self.alias_exists(address)
+
+    # ---- diagnostics reads (PR 34; used with the read-only key) -----------
+
+    LOG_KINDS = ("postfix", "rspamd-history", "dovecot")
+
+    def logs(self, kind: str, count: int) -> list[dict]:
+        """The newest `count` entries of one of mailcow's Redis-held logs."""
+        if kind not in self.LOG_KINDS:
+            raise ValueError(kind)
+        data = self._request("GET", f"/api/v1/get/logs/{kind}/{int(count)}")
+        return [x for x in data if isinstance(x, dict)] if isinstance(data, list) else []
+
+    def quarantine(self) -> list[dict]:
+        data = self._request("GET", "/api/v1/get/quarantine/all")
+        return [x for x in data if isinstance(x, dict)] if isinstance(data, list) else []
+
+    def mail_queue(self) -> list[dict]:
+        data = self._request("GET", "/api/v1/get/mailq/all")
+        return [x for x in data if isinstance(x, dict)] if isinstance(data, list) else []
 
     # ---- write -----------------------------------------------------------
 

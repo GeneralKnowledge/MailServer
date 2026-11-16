@@ -119,8 +119,9 @@ moves a line, recording code and Oracle proof separately.
   SOGo signs in through mailcow and needs no provisioning of its own.
 - Every caller of the control plane has its own credential and a fixed list
   of operations ([capabilities](#caller-capabilities)).
-- Monitoring reads mailcow with its own read-only key and calls nothing in
-  the control plane except `/health`.
+- Monitoring calls nothing in the control plane except `/health`. The one
+  read-only mailcow key is held by the control plane for the admin message
+  trace (PR 34), separate from its read-write key, so the trace cannot write.
 - SimpleLogin, if ever adopted ([ADR 0005](adr/0005-native-aliases-first.md)),
   sits beside Keycloak and is reached only through the control plane.
 
