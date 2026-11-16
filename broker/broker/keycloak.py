@@ -120,6 +120,30 @@ class KeycloakClient:
                 return str(u["id"])
         return None
 
+    def list_users(self, page: int = 200, limit: int = 20000) -> list[dict]:
+        """Every person in the realm, for reconciliation (PR 31, read only):
+        {"id", "username", "email", "enabled"}. Service accounts are left out."""
+        found: list[dict] = []
+        first = 0
+        while first < limit:
+            r = self._admin("GET", "/users", params={"first": first, "max": page, "briefRepresentation": "true"})
+            if r.status_code != 200:
+                raise KeycloakError("unavailable", f"user list HTTP {r.status_code}")
+            try:
+                batch = r.json()
+            except ValueError as e:
+                raise KeycloakError("unavailable", "user list: non-JSON response") from e
+            if not isinstance(batch, list):
+                raise KeycloakError("unavailable", "user list: unexpected response")
+            for u in batch:
+                if isinstance(u, dict) and u.get("id") and not str(u.get("username", "")).startswith("service-account-"):
+                    found.append({"id": str(u["id"]), "username": str(u.get("username", "")).lower(),
+                                  "email": str(u.get("email") or "").lower(), "enabled": bool(u.get("enabled"))})
+            if len(batch) < page:
+                break
+            first += page
+        return found
+
     # ---- writes ----------------------------------------------------------
 
     def create_user(self, *, username: str, email: str, password: str, name: str = "",

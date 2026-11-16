@@ -55,7 +55,13 @@ class FakeKeycloak:
         if request.method == "GET" and rest == "/users/count":
             return httpx.Response(200, json=len(self.users))
         if request.method == "GET" and rest == "/users":
-            q = request.url.params.get("username", "").lower()
+            p = request.url.params
+            if "username" not in p:   # PR 31: the whole list, paged
+                everyone = [{"id": u["id"], "username": u["username"], "email": u.get("email", ""),
+                             "enabled": u.get("enabled", True)} for u in self.users.values()]
+                first, mx = int(p.get("first", 0)), int(p.get("max", 100))
+                return httpx.Response(200, json=everyone[first:first + mx])
+            q = p.get("username", "").lower()
             return httpx.Response(200, json=[{"id": u["id"], "username": u["username"]}
                                              for u in self.users.values() if u["username"] == q])
         if request.method == "POST" and rest == "/users":

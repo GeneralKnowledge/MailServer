@@ -75,7 +75,12 @@ with the run's start time (`python -m broker.backup --mark-complete <start>`).
 compares the mailboxes the control plane created (and the deletion job has
 not removed) with mailcow's list, writes a `reconcile.report` audit event,
 alerts if one we created is gone, and lists mailboxes made outside the
-control plane as "unmanaged". It changes nothing.
+control plane as "unmanaged". With Keycloak (PR 31) it also checks every
+identity link: the Keycloak user and the mailbox exist, the user's email is
+the address, and both agree on whether the person can sign in. Its one fix
+(skipped with `--dry-run`) is recording a missing link when exactly one
+unlinked Keycloak user has the mailbox's address as email, audited as
+`identity.link`; it never changes mailcow or Keycloak.
 
 ## Account lifecycle and the deletion job (PR 16)
 
