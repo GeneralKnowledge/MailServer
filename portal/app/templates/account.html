@@ -36,7 +36,17 @@
 <h2>Mail</h2>
 <ul>
   <li><a href="{{ links.webmail }}">Webmail</a>: mail, contacts, calendar, filters and vacation replies</li>
-  <li><a href="{{ links.mailcow_user }}">Spam settings and quarantine</a></li>
+</ul>
+
+<h2>Privacy and spam</h2>
+<ul>
+  <li><a href="{{ links.mailcow_user }}">Spam filter</a>: in your mailbox settings, the <em>Spam filter</em> tab sets
+      how strict filtering is, and keeps lists of senders to always allow or always block</li>
+  <li><a href="{{ links.mailcow_user }}">Quarantine</a>: messages held as suspicious, and how often you hear about them
+      (<em>Settings</em> in your mailbox settings)</li>
+  <li>Images from other websites are not loaded in webmail, so senders can't see when you open a message.
+      To change it: <a href="{{ links.webmail }}">Webmail</a> → Preferences → Mail →
+      <em>Display remote inline images</em>.</li>
 </ul>
 <p class="muted">Each link opens the place that already does this well; this page only gathers them.</p>
 {% endblock %}

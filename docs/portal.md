@@ -16,7 +16,10 @@ everything else it **links** to the place that already does it well
 | Apple setup profile, CalDAV/CardDAV | mailcow's user page |
 | Password, two-factor | Keycloak account console, Signing in |
 | Where you're signed in, sign out other devices | Keycloak account console, Device activity |
-| Recent mail-app logins, spam settings, quarantine | mailcow's user page |
+| Recent mail-app logins | mailcow's user page |
+| Spam strictness, senders always allowed or blocked (PR 20) | mailcow's user page, *Spam filter* tab |
+| Quarantine and how often to be told about it (PR 20) | mailcow's user page, *Settings* |
+| Remote images in webmail (PR 20) | Explained in place: off by default (SOGo's own default, `never`); SOGo Preferences → Mail → *Display remote inline images* |
 | Mail, contacts, calendar, filters, vacation | SOGo (webmail) |
 
 Onboarding puts the app password first, because with one identity the

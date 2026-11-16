@@ -89,7 +89,7 @@ PR of its own.
 
 | PR | Title | Delivers | Depends on | Server |
 |---|---|---|---|---|
-| 20 | Privacy configuration and discoverability | Configuration and discoverability only: SOGo remote-content defaults and portal links to mailcow's existing per-user spam thresholds and sender allow/block lists. No new privacy UI or control-plane operations | 14 | Yes |
+| 20 | Privacy configuration and discoverability | Configuration and discoverability only: SOGo remote-content defaults and portal links to mailcow's existing per-user spam thresholds and sender allow/block lists. No new privacy UI or control-plane operations. Remote images: SOGo's own default is already `never` and mailcow doesn't change it, so no setting is added; the portal explains it and names the preference. Mailbox template ACL keeps spam and quarantine settings on. **Implemented in code**; not proven on server, not deployed | 14 | Yes |
 
 ## M8 – Automation
 
@@ -249,6 +249,9 @@ Stay open until tested on the Oracle box.
 - PR 18: mailcow's "show only Single Sign-On" option on the real login page,
   `/admin` still reachable with its own form, and `/SOGo` not offering a
   separate password form.
+- PR 20: SOGo shows remote images as blocked by default for a new user
+  (`docker compose exec sogo-mailcow sogo-tool dump-defaults` shows no
+  override), and an `avedeus-user` mailbox sees the *Spam filter* tab.
 - Every native default from audit O1 works on ARM64 and survives a mailcow
   update (lazy-expunge via `data/conf/dovecot/extra.conf`, quarantine digests,
   mailbox template defaults, SOGo remote-content default).

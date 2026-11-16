@@ -13,6 +13,10 @@ shown working on the server, with a note of what was checked and when. A PR
 that moves no line says "baseline: no change". This stops work from looking
 finished when it has never been shown working together on the real box.
 
+PR 20 (2026-11-15): baseline: no change. The portal names the native privacy
+and spam settings (mailcow's Spam filter tab, quarantine, SOGo's remote-image
+preference) and links to them; nothing new is configured or built. Not deployed.
+
 PR 18 (2026-11-15): baseline: no change. Keycloak's sign-in pages wear the
 Avedeus theme (CSS only) and mailcow's own "show only Single Sign-On" option is
 documented as a server step. Not deployed.

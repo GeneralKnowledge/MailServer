@@ -11,7 +11,8 @@
 | Delete a mailbox at once (no grace, no backup check) | mailcow UI, Delete. Avoid: the console's scheduled deletion keeps a backup and an audit trail |
 | Add an alias | E-Mail → Configuration → Aliases |
 | Mailbox usage | Mailboxes list (quota column) |
-| Spam settings | per-domain / global: Configuration → Rspamd; per-user in SOGo or mailcow user UI |
+| Spam settings | per-domain / global: Configuration → Rspamd; per-user: the user's own mailcow page, *Spam filter* tab (strictness, allow/deny lists), if the mailbox ACL allows it (PR 20) |
+| Remote images in webmail | Off for everyone by default (SOGo's default `SOGoMailDisplayRemoteInlineImages = never`; mailcow's `sogo.conf` does not override it). Each person can turn it on in SOGo Preferences |
 | System health | mailcow System → Status, and `scripts/health-check.sh` |
 | Mail queue | mailcow System → Queue manager |
 | Why didn't a message arrive? | Message trace (below; PR 34) |
