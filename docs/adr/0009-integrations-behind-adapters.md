@@ -19,6 +19,11 @@ reached through one adapter in the control plane, following the
 
 Callers see control-plane operations, never which adapter served them.
 
+Adapters exist only for integrations actually in use. Replaceability comes
+from the narrow boundary, not from a framework: no universal adapter layer,
+plugin system or adapter for an integration nobody has chosen
+([0017](0017-minimum-complete-platform.md), rule 1).
+
 ## Consequences
 
 - Replacing an integration (for example Keycloak with Kanidm, or adding

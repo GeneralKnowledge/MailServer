@@ -1,4 +1,4 @@
-"""Broker settings, read once from environment variables (see broker.env.example)."""
+"""Control-plane settings, read once from environment variables (see broker.env.example)."""
 
 from __future__ import annotations
 
@@ -17,6 +17,18 @@ DEFAULT_RESERVED = frozenset(
     """.split()
 )
 
+# Callers that can be configured, each with <NAME>_TOKEN and <NAME>_CLIENTS.
+# What each may do is in capabilities.py (mirrors contracts/capabilities.yaml).
+REQUIRED_CALLERS = ("signup",)
+OPTIONAL_CALLERS = ("monitoring",)
+
+
+@dataclass(frozen=True)
+class Caller:
+    name: str
+    token: str
+    clients: tuple[str, ...]  # source IPs/networks it may call from; ("*",) = any (tests only)
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -25,8 +37,8 @@ class Settings:
     mailcow_tls_hostname: str | None
     mailcow_verify_tls: bool
     mail_domain: str
-    token: str                      # shared secret the registration app presents
-    allowed_clients: tuple[str, ...]  # client IPs allowed to call the broker; ("*",) = any (tests only)
+    callers: tuple[Caller, ...]
+    db_path: str
     max_quota_mb: int
     min_username_len: int
     max_creates_per_day: int
@@ -46,10 +58,26 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         v = src.get(name, "")
         return int(v) if v.strip() else default
 
-    token = req("BROKER_TOKEN")
-    if len(token) < 32:
-        raise RuntimeError("BROKER_TOKEN must be at least 32 characters")
-    clients = tuple(x.strip() for x in req("BROKER_ALLOWED_CLIENTS").split(",") if x.strip())
+    for old, new in (("BROKER_TOKEN", "SIGNUP_TOKEN"), ("BROKER_ALLOWED_CLIENTS", "SIGNUP_CLIENTS")):
+        if src.get(old, "").strip():
+            raise RuntimeError(f"{old} was renamed to {new} (one credential per caller); update broker.env")
+
+    def caller(name: str, required: bool) -> Caller | None:
+        key = name.upper()
+        token = src.get(f"{key}_TOKEN", "").strip()
+        if not token and not required:
+            return None
+        token = token or req(f"{key}_TOKEN")
+        if len(token) < 32:
+            raise RuntimeError(f"{key}_TOKEN must be at least 32 characters")
+        clients = tuple(x.strip() for x in req(f"{key}_CLIENTS").split(",") if x.strip())
+        return Caller(name, token, clients)
+
+    callers = tuple(c for c in [caller(n, True) for n in REQUIRED_CALLERS] +
+                    [caller(n, False) for n in OPTIONAL_CALLERS] if c)
+    if len({c.token for c in callers}) != len(callers):
+        raise RuntimeError("each caller needs its own token (two callers share one)")
+
     extra = {x.strip().lower() for x in src.get("EXTRA_RESERVED_USERNAMES", "").split(",") if x.strip()}
     return Settings(
         mailcow_api_url=req("MAILCOW_API_URL").rstrip("/"),
@@ -57,8 +85,8 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         mailcow_tls_hostname=src.get("MAILCOW_TLS_HOSTNAME") or None,
         mailcow_verify_tls=src.get("MAILCOW_VERIFY_TLS", "true").strip().lower() in {"1", "true", "yes", "on"},
         mail_domain=req("MAIL_DOMAIN").lower(),
-        token=token,
-        allowed_clients=clients,
+        callers=callers,
+        db_path=src.get("CONTROL_PLANE_DB", "").strip() or "/data/control-plane.sqlite3",
         max_quota_mb=num("MAX_QUOTA_MB", 10240),
         min_username_len=num("MIN_USERNAME_LEN", 3),
         max_creates_per_day=num("MAX_CREATES_PER_DAY", 20),

@@ -2,7 +2,7 @@
 # Both sit on the small internal avedeus-edge network (scripts/create-edge-network.sh),
 # which mailcow's nginx also joins (see the mailcow docker-compose.override.yml):
 #   * mailcow's nginx proxies https://mail.<domain>/join/ to the registration app,
-#   * the app asks the broker to check addresses and create mailboxes, and
+#   * the app asks the broker (the control plane) to check addresses and create mailboxes, and
 #   * the broker, the only holder of the mailcow API key, calls the API
 #     through nginx-mailcow. The key is allow-listed to the broker's address.
 # Neither is on mailcow's own network: Postfix trusts every address there to
@@ -37,6 +37,8 @@ services:
     image: mailserver-broker:local
     env_file: broker.env   # holds the mailcow API key; the registration app never reads it
     restart: unless-stopped
+    volumes:
+      - control-plane-data:/data   # its own database: audit log, idempotency records
     networks:
       edge:
         # Fixed address: mailcow's API_ALLOW_FROM lists only this one.
@@ -55,6 +57,7 @@ services:
 
 volumes:
   registration-data:
+  control-plane-data:
 
 networks:
   edge:

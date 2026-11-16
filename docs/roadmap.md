@@ -4,8 +4,13 @@ Adopted 2026-11-15 as the working plan (source: the "Avedeus integration
 platform: research and plan" document). Replaces `docs/roadmap-m5-m7.md`;
 nothing from that plan is dropped (see [mapping](#where-the-old-m5m7-items-went)).
 
-**Order.** M0–M4 on the real Oracle server first (server setup is on hold
-until the owner says go). Audit fixes 1–7 are done in code (PR #1). PR 8 (this
+**Order.** M0–M4 on the real Oracle server first. **Approved 2026-11-15**
+as a staged setup, not permission to skip validation: verify mailcow's native
+defaults and supported overrides; validate Keycloak authentication, lifecycle
+and resource use (pause its integration if it fails the gate); test app
+passwords with real mail clients; measure Postfix/Rspamd log retention for
+PR 34; test backups and restoration; verify network isolation and
+provisioning; check ARM64 compatibility and memory limits. Audit fixes 1–7 are done in code (PR #1). PR 8 (this
 architecture) comes next, then PR 9 onward. Every PR:
 
 - is small enough to review in one sitting, with tests against fakes;
@@ -14,7 +19,49 @@ architecture) comes next, then PR 9 onward. Every PR:
 - updates [platform-baseline.md](platform-baseline.md) when it moves a line
   (code and Oracle proof recorded separately), or says "baseline: no change";
 - names and justifies any departure from an accepted ADR or a rejected
-  project ([ADR 0011](adr/0011-rejected-projects.md)).
+  project ([ADR 0011](adr/0011-rejected-projects.md));
+- for a new feature, says what mailcow, SOGo or Keycloak already provide and
+  why enabling, configuring, linking or explaining it is not enough
+  ([ADR 0016](adr/0016-use-what-exists-first.md)).
+
+## Initial ship target
+
+**Avedeus Mail, minimum complete platform** ([ADR 0017](adr/0017-minimum-complete-platform.md)):
+
+1. Reliable mail infrastructure: mailcow, SOGo, DNS, spam filtering, backups
+   and tested restoration (M0–M4, PR 29).
+2. Safe identity: Keycloak integration after its validation gate, account
+   lifecycle, credential separation (PR 11, 12, 15, 16, 17).
+3. A small control plane: provisioning, permissions, audit and
+   reconciliation (PR 9, 13, 31).
+4. A useful portal: one place for account settings, security links,
+   administration and existing mailcow functionality (PR 14, 18, 20).
+5. Operational intelligence: alerts, delivery diagnostics and recovery tools
+   (audit fix 5, PR 28, 30, 34, 29).
+
+Everything else earns its place through demonstrated demand. Before a
+component goes into a deployment, ask: **can we remove it without losing a
+feature users actually need today?** If yes, it does not belong in the
+initial deployment. Make the boundaries replaceable, but don't build the
+replacement mechanism until it is needed.
+
+Deferred outside the initial commitment: cross-service automation, a custom
+security dashboard, a user-facing message trace, an account export
+application, the metrics stack (PR 27), personal API tokens and MCP (PR 32),
+the AI assistant (PR 33). Alias work is parked and the rule engine dropped
+(see [decision record](#decision-record-2026-11-15)).
+
+**Gap audit (2026-11-15).** The [mailcow feature-gap audit](mailcow-gap-audit.md)
+re-scoped PR 14, 20, 23–25 and 29 and added PR 34. Numbering is unchanged:
+PR numbers are identifiers, not a strict build order.
+
+**Native defaults on Oracle (audit O1).** During M1 setup and the Oracle
+rehearsal, turn on and verify the native features we rely on rather than
+assuming they work: lazy-expunge self-restore folder, quarantine digests on
+by default, mailbox template defaults (app passwords and recovery email
+allowed), SOGo remote images off by default. A short user guide points at
+mailcow's user page and SOGo's filters. This is configuration and docs, not a
+PR of its own.
 
 "Server: yes" means the PR is not done until it has run on the Oracle box.
 
@@ -23,17 +70,16 @@ architecture) comes next, then PR 9 onward. Every PR:
 | PR | Title | Delivers | Depends on | Server |
 |---|---|---|---|---|
 | 8 | Architecture and service contracts | Docs and contracts only: [architecture](architecture.md), this roadmap, [ADRs](adr/), [control-plane contract](../contracts/control-plane.openapi.yaml), [capabilities](../contracts/capabilities.yaml), [audit schema](../contracts/audit-event.schema.json), [integration contract](integration-contract.md), [baseline checklist](platform-baseline.md), CI contract check | Audit 7 | No |
-| 9 | Control plane core | Broker becomes the control plane: adapter interface, mailcow adapter, per-caller credentials checked against capabilities.yaml, append-only audit log, idempotency keys, error envelope for validation errors, nightly reconciliation stub | 8 | No |
-| 10 | Alias back end (mailcow-native) | List, create random/custom, expire, disable, delete own aliases; per-user limits; reserved names; SimpleLogin/addy-compatible endpoints behind per-user tokens. Built against fakes; done only after an Oracle rehearsal. **Needs E3** ([ADR 0013](adr/0013-alias-domain.md)) | 9 | Yes |
-| 11 | Keycloak and Postgres | arm64 images, memory caps, capped JVM heap; realm, clients, groups as code; `/auth/` through mailcow nginx; admin console IP-restricted; in backups | 8 | Yes |
-| 12 | One identity | mailcow IdP set to Keycloak with sync and offboarding; mailbox templates; migration of existing mailboxes; Keycloak adapter; invitation creates the Keycloak user, then the mailbox. **Needs E5** ([ADR 0015](adr/0015-mail-client-passwords.md)) | 9, 11 | Yes |
-| 13 | Health contract | Every adapter reports health; one internal `/v1/health` feeds the audit-5 alerts | 9 | No |
+| 9 | Control plane core | Broker becomes a **narrow** control plane (no workflow engine, event bus, plugin framework or speculative adapters; [ADR 0017](adr/0017-minimum-complete-platform.md)): adapter interface, mailcow adapter, per-caller credentials checked against capabilities.yaml, append-only audit log, idempotency keys, error envelope for validation errors, nightly reconciliation stub. **Implemented in code** (per-caller tokens, `/v1/health`, report-only daily reconciliation, CI conformance tests); not proven on Oracle | 8 | No |
+| 11 | Keycloak and Postgres | **Validation gate first** ([ADR 0006](adr/0006-keycloak-identity-provider.md#validation-gate-before-deployment-added-2026-11-15)): not deployed on Oracle until unified identity is needed today and it fits the box. Then arm64 images, memory caps, capped JVM heap; realm, clients, groups as code; `/auth/` through mailcow nginx; admin console IP-restricted; in backups | 8 | Yes |
+| 12 | One identity | mailcow IdP set to Keycloak with sync and offboarding; mailbox templates; migration of existing mailboxes; Keycloak adapter; invitation creates the Keycloak user, then the mailbox. Mail clients use **app passwords only**; Mailpassword Flow not enabled ([ADR 0015](adr/0015-mail-client-passwords.md)) | 9, 11 | Yes |
+| 13 | Health contract | `/v1/health` itself exists since PR 9; PR 13 wires `health-check.sh` and the audit-5 alerts to it with the monitoring caller | 9 | No |
 
 ## M6 – User experience
 
 | PR | Title | Delivers | Depends on | Server |
 |---|---|---|---|---|
-| 14 | Portal shell | `/account`, Keycloak sign-in; quota, aliases, app passwords, CalDAV/CardDAV setup, link to SOGo | 12 | Yes |
+| 14 | Portal shell and links | `/account`, Keycloak sign-in; quota; a Security panel and other entries that **link** to native functionality instead of rebuilding it: Keycloak account console (sessions, MFA, password), mailcow's user page (app passwords, login history, spam settings, quarantine, Apple/CalDAV/CardDAV setup profiles), SOGo (mail, filters, vacation). Onboarding makes creating an app password the first step for mail apps | 12 | Yes |
 | 15 | Admin console split | Admin pages leave the sign-up app for their own container at `/admin`; Keycloak admin group + TOTP + IP allow-list; accounts list. **Open design point:** invitations live in the sign-up app's own SQLite today; because databases are not shared ([ADR 0007](adr/0007-no-shared-databases.md)), PR 15 must either move invitations into the control plane or have the sign-up app expose them through an internal API, and record the choice as an ADR | 12 | Yes |
 | 16 | Account lifecycle | Admin-only suspend, reactivate, quota, forced password reset, soft delete with 30-day grace and fresh-backup check; all audited | 15 | Yes |
 | 17 | Self-service account | Password, MFA, recovery via Keycloak's account console; recovery email; bulk invites and resend | 14 | Yes |
@@ -43,36 +89,71 @@ architecture) comes next, then PR 9 onward. Every PR:
 
 | PR | Title | Delivers | Depends on | Server |
 |---|---|---|---|---|
-| 19 | Alias screens | Portal pages for aliases and password-manager tokens | 10, 14 | Yes |
-| 20 | Privacy controls | Per-user spam threshold, sender allow/block lists, SOGo remote-content defaults | 14 | Yes |
-| 21 | SimpleLogin spike (gated) | Patched arm64 build in a public fork, cloud rehearsal with a mailcow transport map, decision ADR | Owner's go-ahead | No |
-| 22 | SimpleLogin adapter (gated) | Keycloak login, alias domain, lifecycle via control plane; native aliases stay | 21 | Yes |
+| 20 | Privacy configuration and discoverability | Configuration and discoverability only: SOGo remote-content defaults and portal links to mailcow's existing per-user spam thresholds and sender allow/block lists. No new privacy UI or control-plane operations | 14 | Yes |
 
 ## M8 – Automation
 
 | PR | Title | Delivers | Depends on | Server |
 |---|---|---|---|---|
-| 23 | Rule engine | JSON rule model compiled to Sieve, validator, round-trip tests, ManageSieve adapter. **Needs E4** ([ADR 0014](adr/0014-mail-rule-owner.md)) | 9 | No |
-| 24 | Visual rule editor | Portal editor; existing SOGo scripts imported; SOGo's Sieve and vacation UI off (if E4 = Avedeus) | 23, 14 | Yes |
-| 25 | Forwarding and vacation | Verified forwarding destinations with rate limits; vacation responder | 24 | Yes |
-| 26 | Notifications | Background jobs; quota warnings, new sign-in, alias created; email and push | 9 | Yes |
+| 26 | Notifications | Retained. Background jobs; new-sign-in notifications (mailcow has none), quota warnings; email and push | 9 | Yes |
+
+PR 23–25 (rule engine, visual editor, forwarding and vacation) were **dropped**
+on 2026-11-15: SOGo owns user-facing rules ([ADR 0014](adr/0014-mail-rule-owner.md)).
 
 ## M9 – Operations
 
 | PR | Title | Delivers | Depends on | Server |
 |---|---|---|---|---|
-| 27 | Metrics stack | Prometheus, Grafana (Keycloak login), mailcow exporter with its own RO key, node_exporter; dashboards and alert rules as code | 11, audit 5 | Yes |
+| 27 | ~~Metrics stack~~ **Deferred until justified** | Prometheus, Grafana, exporters and dashboards wait for an operational need. Monitoring starts from mailcow's own (watchdog, UI, logs), our alerts (audit fix 5), backup verification, the delivery probe (PR 30) and the message trace (PR 34) | — | — |
 | 28 | Audit viewer | Admin view and export of control-plane, Keycloak admin and mailcow API events | 15 | Yes |
-| 29 | Recovery for the new parts | Backup and restore of Keycloak, Postgres and control-plane data; restore drill script; runbooks; mailcow update procedure | 11 | Yes |
+| 29 | Recovery for the new parts | Backup and restore of Keycloak, Postgres and control-plane data; restore drill script; runbooks; mailcow update procedure; **account export and recovery runbooks** (one account's mail via Dovecot export, contacts, calendars and filters via `sogo-tool`; undelete via lazy-expunge and `MAILDIR_GC_TIME`). No export service until there is a demonstrated need | 11 | Yes |
 | 30 | Delivery and DNS checks | Daily delivery probe, DNS and blocklist checks | audit 5 | Yes |
-| 31 | Reconciliation | Detect and report drift between Keycloak, mailcow and control-plane links; safe auto-fixes only | 12 | Yes |
+| 31 | Reconciliation | A simple scheduled job that detects and reports drift between Keycloak, mailcow and control-plane links into the one audit trail; safe auto-fixes only | 12 | Yes |
+| 34 | Message trace (admin) | Read-only, admin-only trace that **correlates a message's whole journey** across mailcow's Postfix log, Rspamd history, quarantine and queue into one plain explanation. Details below | 9, 15; its own read-only mailcow key | Yes |
+
+### PR 34: message trace
+
+The admin gives an address, a time window or a Message-ID. The trace follows
+the message by queue ID and Message-ID across sources, and reports each stage
+it can establish:
+
+| Stage | Established from |
+|---|---|
+| Never reached our server | No Postfix connection or queue entry matches in the retained window |
+| Rejected during SMTP | Postfix reject line (and the reason: policy, RBL, Rspamd reject, unknown recipient) |
+| Accepted by Postfix | Postfix queue ID assigned |
+| Classified as spam or quarantined | Rspamd history (score, action, main symbols); quarantine entry |
+| Deferred awaiting delivery | Queue entry or `status=deferred` with the remote reply |
+| Accepted by the destination server | Outbound `status=sent` with the remote server's reply |
+| Delivered locally to a mailbox | Local delivery to Dovecot (`status=sent` via LMTP), plus the target folder where known |
+
+Rules:
+
+- **Read-only and admin-only.** It changes nothing (no release, resend or
+  queue action) and is reachable only from the admin console. It reads mailcow
+  through the control plane with its own read-only key (the first one, since
+  PR 27 is deferred), and every trace is
+  written to the audit log.
+- **Honest about limits.** Each answer says what the trace cannot establish:
+  "accepted by the destination server" does not prove the recipient saw it;
+  "delivered locally" does not prove it was read; "never reached us" only
+  covers the retained log window; mail that never connected to our server
+  leaves no trace here at all.
+- **No user-facing version here.** A future user-facing delivery explanation
+  is a separate feature that needs its own permissions and privacy decision
+  (an ADR) first; PR 34 does not create it.
+- The look-back is limited by mailcow's Redis log window (10,000 lines per
+  log); measuring how many days that covers is an open server check. Longer
+  retention would be a separate decision, not part of PR 34.
+- Adds a planned `traceMessage` operation to the contract, granted to `admin`
+  only.
 
 ## M10 – Extensions
 
 | PR | Title | Delivers | Depends on | Server |
 |---|---|---|---|---|
-| 32 | Personal API tokens and MCP | Scoped, IP-limited, short-lived tokens; read-only MCP server; both are callers of the control plane with a subset of the portal's capabilities | 9 | Yes |
-| 33 | AI assistant (design first) | Opt-in per user, provider choice, drafts only, nothing sent without approval | 32 | Yes |
+| 32 | ~~Personal API tokens and MCP~~ **Deferred until an actual integration needs it** | Scoped, IP-limited, short-lived tokens; read-only MCP server; both are callers of the control plane with a subset of the portal's capabilities | 9 | Yes |
+| 33 | ~~AI assistant~~ **Deferred** (design first, if ever) | Opt-in per user, provider choice, drafts only, nothing sent without approval | 32 | Yes |
 
 **Rule for M10: keep it small.** MCP and tokens are just another caller of
 the control plane, with the portal's capabilities and the same audit log.
@@ -85,10 +166,39 @@ separate AI infrastructure.
 |---|---|---|
 | E1 | Identity provider | Settled: Keycloak ([ADR 0006](adr/0006-keycloak-identity-provider.md)) |
 | E2 | Alias service | Settled: native first, SimpleLogin optional ([ADR 0005](adr/0005-native-aliases-first.md)) |
-| E3 | Alias domain | **Open**, needed by PR 10 ([ADR 0013](adr/0013-alias-domain.md)) |
-| E4 | Who owns mail rules | **Open**, needed by PR 23 ([ADR 0014](adr/0014-mail-rule-owner.md)) |
-| E5 | Mail-client passwords after Keycloak | **Open**, needed by PR 12 ([ADR 0015](adr/0015-mail-client-passwords.md)) |
+| E3 | Alias domain | Closed as non-blocking while aliases are parked ([ADR 0013](adr/0013-alias-domain.md)) |
+| E4 | Who owns mail rules | Settled: SOGo ([ADR 0014](adr/0014-mail-rule-owner.md)) |
+| E5 | Mail-client passwords after Keycloak | Settled: protocol-scoped app passwords only ([ADR 0015](adr/0015-mail-client-passwords.md)) |
 | E6 | Admin console location | Settled by constraint 2 ([ADR 0010](adr/0010-no-public-lifecycle-admin-separate.md)) |
+| E7 | Initial mail domain | Settled: a subdomain, `mail.avedeus.ovh`; root domain untouched; server host name still to confirm ([ADR 0018](adr/0018-initial-mail-domain.md)) |
+
+### Decision record (2026-11-15)
+
+| Decision | Outcome |
+|---|---|
+| E4 | SOGo owns rules |
+| PR 23–25 | Dropped |
+| Aliases PR 10, 19, 21, 22 | Parked: possible future work, not planned deliverables |
+| E3 | Non-blocking |
+| E5 | Protocol-scoped app passwords |
+| Initial mail domain | `mail.avedeus.ovh` (root `avedeus.ovh` untouched; moving to the root is a later decision) |
+| Oracle setup | Approved for M0–M4, with the validation list under **Order** |
+| PR 34 | Retained, pending the log-window measurement |
+| PR 1 | Already merged |
+
+### Possible future work (not planned)
+
+Native mailcow aliases remain available to users and admins. These are kept
+only so the thinking is not lost; none is a planned deliverable, and reviving
+one needs the owner's go-ahead and a removal-test answer
+([ADR 0017](adr/0017-minimum-complete-platform.md)).
+
+| Former PR | Was | Notes |
+|---|---|---|
+| 10 | Alias back end (mailcow-native) through the control plane, with SimpleLogin/addy-compatible endpoints | Direction still set by [ADR 0005](adr/0005-native-aliases-first.md); E3 reopens if revived. The contract keeps its operations as a sketch |
+| 19 | Portal alias screens and password-manager tokens | Depends on 10 |
+| 21 | SimpleLogin spike (gated) | amd64-only upstream images |
+| 22 | SimpleLogin adapter (gated) | Depends on 21 |
 
 Earlier decisions D1–D9 (from the M5–M7 plan) still stand, with these changes:
 
@@ -97,7 +207,7 @@ Earlier decisions D1–D9 (from the M5–M7 plan) still stand, with these change
 | D1 | Alerts go to push and email | Done in code (audit fix 5: ntfy, optionally emailed) |
 | D2 | External monitors: UptimeRobot + healthchecks.io | healthchecks.io done in code (audit fix 5); UptimeRobot is configuration at setup |
 | D3 | Delivery probe to a dedicated Gmail account | Unchanged, PR 30 |
-| D4 | Dashboard inside the invite app | **Changed:** Grafana is in scope (PR 27) plus a summary page in the admin console; nothing ops-related goes into the public sign-up app |
+| D4 | Dashboard inside the invite app | **Changed:** a summary page in the admin console; Grafana (PR 27) deferred until justified; nothing ops-related goes into the public sign-up app |
 | D5 | Build the broker | Done in code (audit fix 7) |
 | D6 | Soft-delete grace: 30 days | Unchanged, PR 16 |
 | D7 | Self-service recovery via mailcow's recovery email | **Changed:** Keycloak's reset flow (PR 17) |
@@ -111,7 +221,7 @@ Earlier decisions D1–D9 (from the M5–M7 plan) still stand, with these change
 | 7.1 CI, 7.2 Dependabot | Tests, lint, build, scanning | Audit fix 3 (done in code). arm64 image build and Trivy still to add, with PR 29 at the latest |
 | 5.1 collector, 5.3 alerts, 5.4 external monitor | Health, state-change alerts, uptime | Audit fix 5 (done in code) |
 | 6.1 broker, 6.2 switch-over | Narrow API in front of the RW key | Audit fix 7 (done in code); grows into the control plane in PR 9 |
-| 5.2 ops dashboard, 5.5 delivery probe, 5.6 DNS checks | Admin health page, daily delivery test | M9: PR 27, PR 30 |
+| 5.2 ops dashboard, 5.5 delivery probe, 5.6 DNS checks | Admin health page, daily delivery test | M9: PR 30, admin summary page; PR 27 deferred |
 | 6.3 accounts page, 6.4 soft delete, 6.5 history | Admin lifecycle with audit trail | M6: PR 15, PR 16; history becomes the PR 9 audit log |
 | 6.6 invitation improvements, 6.7 recovery email | Bulk invites, resend, recovery address | PR 17 |
 | 7.3 update procedure, 7.4 security checks, 7.5 DR drills, 7.6 runbooks, 7.7 secret rotation | Routine operations | M9: PR 29 (the owner declined a monthly scheduled security-check routine on 2026-11-15; checks stay manual and documented) |
@@ -123,8 +233,18 @@ Stay open until tested on the Oracle box.
 - Audit fixes 6–7: edge network and published ports, no route from the
   sign-up container to Postfix/Redis/internet, broker selfcheck against the
   real API, `sshd -T`, alerts arriving.
-- Rspamd `/metrics` reachable on mailcow's internal network (PR 27).
+- Rspamd `/metrics` reachable on mailcow's internal network (PR 27, deferred; check only if it is revived).
 - Keycloak start-up and steady RAM/CPU on two Ampere cores (PR 11; Kanidm
   spike is the fallback).
 - Whether offboarding or a Keycloak disable ends live SOGo and IMAP sessions
-  (PR 16).
+  (PR 16; also affects PR 14's Security panel).
+- Every native default from audit O1 works on ARM64 and survives a mailcow
+  update (lazy-expunge via `data/conf/dovecot/extra.conf`, quarantine digests,
+  mailbox template defaults, SOGo remote-content default).
+- How many days of Postfix and Rspamd history the 10,000-line Redis window
+  holds on our traffic (sets PR 34's look-back).
+- App passwords work with real mail clients (phone and desktop: IMAP, SMTP,
+  CalDAV/CardDAV), including for IdP-linked mailboxes after PR 12, and stop
+  working when a mailbox is offboarded (ADR 0015).
+- The final host names for [ADR 0018](adr/0018-initial-mail-domain.md):
+  mailcow hostname versus the `mail.avedeus.ovh` mail domain.

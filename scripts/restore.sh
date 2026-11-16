@@ -2,7 +2,7 @@
 # Restore helper. Steps (full procedure: docs/backup-and-recovery.md):
 #   1. scripts/restore.sh fetch <backup-folder-name>   download from off-site to /var/backups/mailserver/restore
 #   2. scripts/restore.sh mailcow                       run mailcow's interactive restore (choose that folder)
-#   3. scripts/restore.sh registration <backup-folder>  restore the invitation database
+#   3. scripts/restore.sh registration <backup-folder>  restore the invitation and control-plane databases
 #   4. scripts/restore.sh list                          list remote backups
 set -euo pipefail
 umask 077  # everything this script writes holds mail or secrets
@@ -69,7 +69,26 @@ case "${1:-}" in
       'rm -f /data/registration.sqlite3-wal /data/registration.sqlite3-shm && cat > /data/registration.sqlite3' \
       < "$src/registration.sqlite3"
     $COMPOSE up -d registration
-    $COMPOSE exec -T registration python -m app.cli list | head ;;
+    $COMPOSE exec -T registration python -m app.cli list | head
+    # Control-plane database (audit log). Older backups (before PR 9) have none.
+    if [ -f "$src/control-plane.sqlite3" ]; then
+      $COMPOSE stop broker
+      keep="$RESTORE_DIR/control-plane-before-restore-$(date -u +%Y%m%dT%H%M%SZ).sqlite3"
+      if $COMPOSE run --rm --no-deps -T broker sh -c \
+           'test -f /data/control-plane.sqlite3 && python -m broker.backup /tmp/prev.sqlite3 >/dev/null && cat /tmp/prev.sqlite3' \
+           > "$keep" 2>/dev/null && [ -s "$keep" ]; then
+        echo "previous control-plane database saved to $keep"
+      else
+        rm -f "$keep"
+      fi
+      $COMPOSE run --rm --no-deps -T broker sh -c \
+        'rm -f /data/control-plane.sqlite3-wal /data/control-plane.sqlite3-shm && cat > /data/control-plane.sqlite3' \
+        < "$src/control-plane.sqlite3"
+      $COMPOSE up -d broker
+      echo "control-plane database restored"
+    else
+      echo "no control-plane.sqlite3 in $src (backup older than PR 9); the broker keeps its current database"
+    fi ;;
   *)
     sed -n '2,7p' "$0"; exit 1 ;;
 esac

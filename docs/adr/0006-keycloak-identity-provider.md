@@ -33,3 +33,26 @@ first login.
   not a plan, and it would need a superseding ADR.
 - mailcow's own OAuth2 provider is not used: it lacks OIDC discovery.
 - How mail clients authenticate is open: [0015](0015-mail-client-passwords.md).
+
+## Validation gate before deployment (added 2026-11-15)
+
+The decision stands, but Keycloak is not deployed until it has earned its
+place ([0017](0017-minimum-complete-platform.md)). mailcow already has
+authentication, MFA, app passwords, recovery and user management; Keycloak
+adds a service, a database, a backup requirement and an authentication
+boundary. Its justification is unified identity across Avedeus apps, not
+better email. PR 11 does not deploy it on Oracle until all of these hold:
+
+1. At least one Avedeus app other than mailcow (portal, admin console) is
+   ready to sign in with it, so unified identity is a need today.
+2. Measured RAM and CPU on the Ampere box fit the resource budget beside
+   mailcow.
+3. Its database is covered by backup and a restore has been shown (PR 29
+   scope).
+4. Lifecycle works end to end with mailcow's IdP sync, including whether
+   offboarding ends live sessions (open server check).
+
+If the gate fails, Keycloak's integration is **paused**, not forced into
+production (owner, 2026-11-15). mailcow keeps its own authentication in the
+meantime, and the owner decides the next step in a superseding ADR. No
+alternative is assumed here.

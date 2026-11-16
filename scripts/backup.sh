@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Daily backup: mailcow (official helper), registration DB and our config,
+# Daily backup: mailcow (official helper), registration and control-plane DBs and our config,
 # then verify archives and copy everything off-server with rclone.
 #
 # Config: /etc/mailserver/backup.env, e.g.
@@ -103,6 +103,13 @@ if [ "$SKIP_REGISTRATION" != 1 ]; then
   else
     echo "  FAILED registration database backup (is the registration container running?)"; fail=1
   fi
+  # Control-plane database (audit log, idempotency records): its own DB, its own copy.
+  if docker compose -f "$REG_COMPOSE" exec -T broker python -m broker.backup /data/backup.sqlite3 \
+     && docker compose -f "$REG_COMPOSE" cp broker:/data/backup.sqlite3 "$latest/extras/control-plane.sqlite3"; then
+    docker compose -f "$REG_COMPOSE" exec -T broker rm -f /data/backup.sqlite3 || true
+  else
+    echo "  FAILED control-plane database backup (is the broker container running?)"; fail=1
+  fi
   cp -a "$REPO_DIR/infrastructure/registration/.env" "$latest/extras/registration.env" \
     || { echo "  FAILED copying infrastructure/registration/.env"; fail=1; }
   cp -a "$REPO_DIR/infrastructure/registration/broker.env" "$latest/extras/broker.env" \
@@ -125,12 +132,15 @@ for f in "$latest"/*.tar.zst; do
   if zstd -tq "$f"; then echo "  ok $(basename "$f") $(du -h "$f" | cut -f1)"; else echo "  CORRUPT $f"; fail=1; fi
 done
 need_files="backup_vmail.tar.zst backup_crypt.tar.zst backup_redis.tar.zst backup_mariadb.tar.zst mailcow.conf extras/mailcow-custom.tgz"
-[ "$SKIP_REGISTRATION" = 1 ] || need_files="$need_files extras/registration.sqlite3 extras/registration.env extras/broker.env"
+[ "$SKIP_REGISTRATION" = 1 ] || need_files="$need_files extras/registration.sqlite3 extras/control-plane.sqlite3 extras/registration.env extras/broker.env"
 for need in $need_files; do
   [ -s "$latest/$need" ] || { echo "  MISSING $need"; fail=1; }
 done
 if [ -f "$latest/extras/registration.sqlite3" ]; then
   python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); assert c.execute('pragma integrity_check').fetchone()[0]=='ok'; print('  ok registration.sqlite3', c.execute('select count(*) from invitations').fetchone()[0], 'invitations')" "$latest/extras/registration.sqlite3" || fail=1
+fi
+if [ -f "$latest/extras/control-plane.sqlite3" ]; then
+  python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); assert c.execute('pragma integrity_check').fetchone()[0]=='ok'; print('  ok control-plane.sqlite3', c.execute('select count(*) from audit_events').fetchone()[0], 'audit events')" "$latest/extras/control-plane.sqlite3" || fail=1
 fi
 ( cd "$latest" && find . -type f ! -name SHA256SUMS -print0 | xargs -0 sha256sum > SHA256SUMS )
 [ "$fail" -eq 0 ] || { log "ERROR: verification failed, not uploading"; exit 1; }

@@ -14,12 +14,13 @@ script overwrite each other.
 ## Decision
 
 - At any time, exactly **one** tool writes a user's active Sieve script.
-- Until [0014](0014-mail-rule-owner.md) is decided, that tool is SOGo, and no
-  Avedeus code writes Sieve.
+- That tool is SOGo ([0014](0014-mail-rule-owner.md), accepted 2026-11-15),
+  and no Avedeus code writes Sieve.
 - Admin-level pre/post filters through the mailcow API are separate and stay
   admin-only.
 
 ## Consequences
 
-PR 23 (rule engine) can be built and tested against fakes, but PR 24 (visual
-editor) cannot ship until 0014 is decided.
+PR 23–25 (rule engine, visual editor, forwarding and vacation) are dropped
+([0014](0014-mail-rule-owner.md)). Changing the owner later needs a
+superseding ADR.

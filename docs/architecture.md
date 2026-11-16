@@ -14,7 +14,7 @@ product.** It is not a new mail server: mailcow does mail, Keycloak (from
 PR 11) does identity, and our own code is limited to a control plane, a few
 user-facing apps and the operational glue around them.
 
-Two consequences shape every decision:
+Four rules shape every decision:
 
 - **Foundations before experience.** Infrastructure, core services, the
   control plane and the operational foundations must be dependable before we
@@ -23,6 +23,18 @@ Two consequences shape every decision:
   Ampere box and adds maintenance forever. A service is added only when a
   milestone needs it, never because it is interesting
   ([ADR 0002](adr/0002-layered-platform.md)).
+- **Use what exists first.** Before building a feature, establish whether
+  mailcow, SOGo or Keycloak already provides it. Prefer enabling,
+  configuring, linking and explaining existing functionality. Build new
+  functionality only where there is a demonstrable gap
+  ([ADR 0016](adr/0016-use-what-exists-first.md),
+  [gap audit](mailcow-gap-audit.md)).
+- **Make the boundaries replaceable, but don't build the replacement
+  mechanism until you need it.** Before a component goes into a deployment,
+  ask: can we remove it without losing a feature users actually need today?
+  If yes, it does not belong in the initial deployment
+  ([ADR 0017](adr/0017-minimum-complete-platform.md), which also sets the
+  initial ship target).
 
 ## Layers
 
@@ -112,6 +124,20 @@ moves a line, recording code and Oracle proof separately.
 - SimpleLogin, if ever adopted ([ADR 0005](adr/0005-native-aliases-first.md)),
   sits beside Keycloak and is reached only through the control plane.
 
+### Control plane scope
+
+The control plane is a narrow security and integration broker, not a
+miniature enterprise platform ([ADR 0017](adr/0017-minimum-complete-platform.md)).
+It needs caller authentication and authorisation, narrow adapters for the
+integrations in use, one authoritative audit trail, idempotent operations,
+basic scheduled reconciliation and health reporting. It does not initially
+get a workflow engine, an event bus, a plugin framework, a distributed job
+system or abstractions for integrations we haven't identified.
+
+Keycloak (PR 11) stays the adopted identity provider but passes a
+[validation gate](adr/0006-keycloak-identity-provider.md#validation-gate-before-deployment-added-2026-11-15)
+before it is deployed.
+
 ### Caller capabilities
 
 The control plane decides what each caller may do; the caller cannot widen it.
@@ -119,16 +145,15 @@ The machine-readable version is
 [contracts/capabilities.yaml](../contracts/capabilities.yaml), and CI checks
 that every operation it lists exists in the
 [OpenAPI contract](../contracts/control-plane.openapi.yaml). Enforcement in
-code arrives with PR 9. Today there is no caller separation: one shared
-token unlocks every broker route, and the `signup` row holds only because the
-broker has no other state-changing endpoints.
+code since PR 9: each enforced caller has its own token and source addresses,
+and may use only its row's implemented operations.
 
 | Caller | Credential | Allowed operations | Identity of the subject comes from |
 |---|---|---|---|
 | `signup` (public `/join`) | Bearer token + source IP | Check address; create mailbox from an invitation (from PR 12: redeem invitation, which creates the Keycloak user, then the mailbox) | The invitation, never a request field |
-| `portal` (`/account`) | Service credential + the user's Keycloak access token | The signed-in user's own aliases, rules, privacy settings, notifications | The verified Keycloak token (`sub`), never a request field |
+| `portal` (`/account`) | Service credential + the user's Keycloak access token | The signed-in user's own notifications; links to native settings (aliases parked, rules owned by SOGo, privacy is configuration) | The verified Keycloak token (`sub`), never a request field |
 | `admin` (`/admin`) | Service credential + admin's Keycloak token in the admin group, TOTP, allowed IP | Account lifecycle, invitations, audit read | The verified Keycloak token |
-| `pm-token` (password managers) | Per-user token, hashed at rest | Create a random alias for the token's owner | The token's owner |
+| `pm-token` (password managers) | Per-user token, hashed at rest | Create a random alias for the token's owner (parked with PR 10) | The token's owner |
 | `personal-token` / MCP (M10) | Per-user scoped, IP-limited, short-lived token | A subset of the `portal` row, read-only first | The token's owner |
 | `monitoring` | Bearer token + source IP | `/health` only | n/a |
 
@@ -169,7 +194,7 @@ and recorded as an ADR then.
 |---|---|
 | mailcow with ClamAV | 4–5 GB |
 | Keycloak + Postgres | 1.2 GB (capped JVM heap) |
-| Prometheus + Grafana + exporters (M9) | 0.5 GB |
+| Prometheus + Grafana + exporters (PR 27, deferred until justified) | 0 GB now (0.5 GB if added) |
 | Avedeus services (control plane, sign-up, portal, admin) | 0.4 GB |
 | Headroom | about 5 GB |
 
@@ -178,7 +203,8 @@ and an arm64 image, or it is not added.
 
 ## What exists today (2026-11-15)
 
-Implemented in code on the PR #1 branch; **nothing is proven on Oracle yet.**
+Implemented in code (PR #1 audit fixes, PR 9 control plane core); **nothing
+is proven on Oracle yet.**
 
 ```
  Internet ──► nginx-mailcow ── /       mailcow UI, SOGo
@@ -187,7 +213,9 @@ Implemented in code on the PR #1 branch; **nothing is proven on Oracle yet.**
                                 ▲ avedeus-edge (internal, 172.30.240.0/24)
  /opt/MailServer/infrastructure/registration (separate compose project)
    ├ registration  .10  FastAPI + SQLite; no mailcow key; asks the broker
-   └ broker        .11  sole holder of the mailcow key; check + create only
+   └ broker        .11  the control plane: sole holder of the mailcow key;
+                        per-caller tokens, check + create + health only,
+                        own SQLite (audit log, idempotency) in its own volume
  backups ──rclone crypt──► off-site
 ```
 
@@ -195,10 +223,11 @@ Implemented in code on the PR #1 branch; **nothing is proven on Oracle yet.**
 |---|---|---|---|
 | mailcow-dockerized | upstream, `/opt/mailcow-dockerized` | 2 | unchanged |
 | Sign-up site + invite admin | `registration/` | 5 | sign-up only; admin pages move to `/admin` in PR 15 |
-| Provisioning broker | `broker/` | 3 | the control plane (PR 9) |
+| Control plane (the broker) | `broker/` | 3 | grows one narrow adapter per integration actually in use |
 | `/join/` proxy rule, SOGo and login branding | `infrastructure/mailcow/configuration/` | 2 (supported custom files) | unchanged |
 | Backups, restore, health, alerts | `scripts/` | 4 | extended in M9 |
-| CI and Dependabot | `.github/` | 4 | gains a contract check (this PR) |
+| CI and Dependabot | `.github/` | 4 | includes the contract check (PR 8, PR 9) |
+| Daily reconciliation (report only) | `scripts/reconcile.sh`, `broker/broker/reconcile.py` | 4 | compares Keycloak links too once PR 12 exists (PR 31) |
 
 ### Sign-up flow today
 
@@ -229,7 +258,11 @@ another certificate manager and port conflicts.
 - Networking: published ports still work; from the sign-up container,
   `postfix-mailcow:25`, Redis and the internet are unreachable; the broker
   reaches `https://nginx-mailcow/api/v1`.
-- Rspamd `/metrics` reachable on mailcow's internal network (PR 27).
+- Rspamd `/metrics` reachable on mailcow's internal network (PR 27, deferred).
 - Keycloak start-up time and steady RAM/CPU on two Ampere cores (PR 11).
 - Whether mailcow offboarding or a Keycloak disable ends live SOGo and IMAP
   sessions (PR 16).
+- Every native mailcow/SOGo default we rely on (gap audit O1) works on ARM64
+  and survives a mailcow update.
+- How many days of Postfix and Rspamd history mailcow's Redis log window
+  (10,000 lines) covers on our traffic; this sets PR 34's look-back.

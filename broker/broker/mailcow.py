@@ -1,16 +1,21 @@
-"""Minimal client for the mailcow REST API (/api/v1).
+"""The mailcow adapter: a minimal client for the mailcow REST API (/api/v1).
 
-Used only by the provisioning broker, the one component that holds the key.
-Calls: version check, look up a mailbox, list aliases, add a mailbox.
+Used only by the control plane, the one component that holds the key. It
+offers typed operations only (version, look up a mailbox, list mailboxes,
+list aliases, add a mailbox) and health, never a pass-through to the API
+(ADR 0009, docs/integration-contract.md).
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from urllib.parse import quote
 
 import httpx
+
+from .adapters import Health
 
 log = logging.getLogger("registration.mailcow")
 
@@ -26,6 +31,7 @@ class MailcowError(Exception):
 
 @dataclass
 class MailcowClient:
+    name = "mailcow"
     base_url: str
     api_key: str
     tls_hostname: str | None = None  # when base_url is the internal nginx-mailcow container
@@ -73,6 +79,25 @@ class MailcowClient:
         if isinstance(data, dict) and data.get("version"):
             return str(data["version"])
         raise MailcowError("unavailable", f"unexpected response: {str(data)[:300]}")
+
+    def health(self) -> Health:
+        start = time.monotonic()
+        try:
+            v = self.version()
+        except MailcowError as e:
+            return Health("down", f"{e.kind}: {e.detail}")
+        return Health("ok", f"mailcow {v}", int((time.monotonic() - start) * 1000))
+
+    def list_mailboxes(self, domain: str) -> set[str]:
+        """Every mailbox address on one domain (lower case)."""
+        data = self._request("GET", "/api/v1/get/mailbox/all")
+        if data == {}:
+            return set()  # mailcow answers {} when there are none
+        if not isinstance(data, list):
+            raise MailcowError("unavailable", f"unexpected response: {str(data)[:300]}")
+        d = "@" + domain.lower()
+        return {str(m.get("username", "")).lower() for m in data
+                if isinstance(m, dict) and str(m.get("username", "")).lower().endswith(d)}
 
     def mailbox_exists(self, address: str) -> bool:
         data = self._request("GET", f"/api/v1/get/mailbox/{quote(address, safe='@')}")

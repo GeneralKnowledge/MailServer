@@ -10,10 +10,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from broker.config import load_settings  # noqa: E402
 from broker.mailcow import MailcowClient  # noqa: E402
 from broker.main import create_app  # noqa: E402
+from broker.store import Store  # noqa: E402
 from fake_mailcow import API_KEY, FakeMailcow  # noqa: E402
 
 TOKEN = "t" * 40
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
+MON_TOKEN = "m" * 40
+MON_AUTH = {"Authorization": f"Bearer {MON_TOKEN}"}
 
 
 class Clock:
@@ -30,8 +33,11 @@ def env():
         "MAILCOW_API_URL": "https://mail.example.com",
         "MAILCOW_API_KEY": API_KEY,
         "MAIL_DOMAIN": "example.com",
-        "BROKER_TOKEN": TOKEN,
-        "BROKER_ALLOWED_CLIENTS": "*",
+        "SIGNUP_TOKEN": TOKEN,
+        "SIGNUP_CLIENTS": "*",
+        "MONITORING_TOKEN": MON_TOKEN,
+        "MONITORING_CLIENTS": "*",
+        "CONTROL_PLANE_DB": ":memory:",
         "MAX_QUOTA_MB": "4096",
         "MAX_CREATES_PER_DAY": "3",
     }
@@ -46,7 +52,9 @@ def ctx(env):
     c.fake, c.clock = FakeMailcow(), Clock()
     c.settings = load_settings(env)
     mc = MailcowClient(c.settings.mailcow_api_url, c.settings.mailcow_api_key, transport=c.fake.transport())
-    c.app = create_app(c.settings, mailcow=mc, clock=c.clock)
+    c.mc = mc
+    c.store = Store(":memory:", clock=c.clock)
+    c.app = create_app(c.settings, mailcow=mc, store=c.store, clock=c.clock)
     c.client = TestClient(c.app)
     return c
 

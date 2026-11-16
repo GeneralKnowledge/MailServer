@@ -67,12 +67,12 @@ sudo /opt/MailServer/scripts/health-check.sh mail.example.com
    ```sh
    cd /opt/MailServer/infrastructure/registration
    sudo cp .env.example .env && sudo cp broker.env.example broker.env && sudo chmod 600 .env broker.env
-   openssl rand -hex 32                                                        # -> BROKER_TOKEN in both files
+   openssl rand -hex 32                                                        # -> SIGNUP_TOKEN (broker.env) = BROKER_TOKEN (.env)
    sudo docker compose build
    sudo docker compose run --rm registration python -m app.cli hash-password   # -> ADMIN_PASSWORD_HASH
    sudo docker compose run --rm registration python -m app.cli new-totp       # -> ADMIN_TOTP_SECRET, scan the URI
    openssl rand -base64 48                                                     # -> SESSION_SECRET
-   sudo nano broker.env   # MAILCOW_API_KEY, BROKER_TOKEN
+   sudo nano broker.env   # MAILCOW_API_KEY, SIGNUP_TOKEN
    sudo nano .env         # BROKER_TOKEN, domain, secrets
    ```
    In `.env`, the hash contains `$` characters; wrap it in single quotes.
