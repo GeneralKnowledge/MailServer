@@ -38,7 +38,7 @@ def test_full_sign_in_shows_account_and_native_links(ctx):
     t = page.text
     assert "alice@example.com" in t and "512 MB of 2048 MB used (25%)" in t
     assert "app password" in t
-    assert f"{ISSUER}/account/#/security/signingin" in t and "https://mx.example.com/user" in t
+    assert f"{ISSUER}/account/account-security/signing-in" in t and "https://mx.example.com/user" in t
     assert "https://mx.example.com/SOGo/" in t
     # The control plane got the portal's token and the user's access token, nothing naming the user.
     call = ctx.cp.calls[-1]

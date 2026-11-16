@@ -4,12 +4,23 @@
 <h1>Invitations</h1>
 {% if new_invite %}
 <div class="notice">
-  <strong>Invitation #{{ new_invite.id }} created.</strong> Copy it now: it won't be shown again.
+  <strong>Invitation #{{ new_invite.id }} {{ "has a new link; the old one no longer works" if new_invite.reissued else "created" }}.</strong> Copy it now: it won't be shown again.
   <label for="newlink">Link</label>
   <input id="newlink" readonly value="{{ new_invite.link }}">
   <label for="newcode">Code</label>
   <input id="newcode" readonly value="{{ new_invite.code }}">
   <p class="muted">Expires {{ new_invite.expires | ts }}.</p>
+</div>
+{% endif %}
+
+{% if new_invites %}
+<div class="notice">
+  <strong>{{ new_invites | length }} invitations created.</strong> Copy the links now: they won't be shown again.
+  <div class="scroll"><table class="list">
+    <thead><tr><th>#</th><th>For</th><th>Link</th><th>Expires</th></tr></thead>
+    <tbody>{% for n in new_invites %}<tr><td>{{ n.id }}</td><td>{{ n.note }}</td>
+      <td><input readonly value="{{ n.link }}" aria-label="Link for {{ n.note }}"></td><td>{{ n.expires | ts }}</td></tr>{% endfor %}</tbody>
+  </table></div>
 </div>
 {% endif %}
 
@@ -21,6 +32,19 @@
   <label>Expires in (days)<input name="days" type="number" min="1" max="90" value="{{ defaults.days or 7 }}"></label>
   <button type="submit">Create</button>
 </form>
+
+<details>
+  <summary>Several at once</summary>
+  <form method="post" action="{{ base }}/invitations/bulk">
+    <input type="hidden" name="csrf" value="{{ user.csrf }}">
+    <label>Who they're for, one per line (up to 50)<textarea name="names" rows="5" maxlength="10000" required></textarea></label>
+    <div class="inline">
+      <label>Mailbox size (MB)<input name="quota_mb" type="number" min="1" max="{{ defaults.max_quota_mb or 10240 }}" value="{{ defaults.quota_mb or 2048 }}"></label>
+      <label>Expires in (days)<input name="days" type="number" min="1" max="90" value="{{ defaults.days or 7 }}"></label>
+    </div>
+    <button type="submit">Create one invitation per line</button>
+  </form>
+</details>
 
 <h2>All invitations</h2>
 <div class="scroll">
@@ -38,6 +62,10 @@
       <form method="post" action="{{ base }}/invitations/{{ i.id }}/extend">
         <input type="hidden" name="csrf" value="{{ user.csrf }}"><input type="hidden" name="days" value="{{ defaults.days or 7 }}">
         <button class="small">{{ "Renew" if i.status == "expired" else "Extend" }} {{ defaults.days or 7 }}d</button>
+      </form>
+      <form method="post" action="{{ base }}/invitations/{{ i.id }}/reissue" title="A new link; the old one stops working">
+        <input type="hidden" name="csrf" value="{{ user.csrf }}"><input type="hidden" name="days" value="{{ defaults.days or 7 }}">
+        <button class="small">New link</button>
       </form>
       <form method="post" action="{{ base }}/invitations/{{ i.id }}/revoke">
         <input type="hidden" name="csrf" value="{{ user.csrf }}"><button class="small danger">Revoke</button>

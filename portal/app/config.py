@@ -31,8 +31,9 @@ class Settings:
             "webmail": f"{u}/SOGo/",
             "mailcow_user": f"{u}/user",
             "kc_account": f"{kc}/account/",
-            "kc_password": f"{kc}/account/#/security/signingin",
-            "kc_sessions": f"{kc}/account/#/security/device-activity",
+            # Keycloak 26's account console (v3) uses path routes, not the old #/ ones (PR 17).
+            "kc_password": f"{kc}/account/account-security/signing-in",
+            "kc_sessions": f"{kc}/account/account-security/device-activity",
         }
 
 

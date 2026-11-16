@@ -120,6 +120,32 @@ def test_mailcow_template_is_declared_and_admin_only():
     assert {"username", "email", "firstName", "lastName"} <= set(attrs)
 
 
+def test_users_cannot_change_their_email_or_username():
+    # PR 17: mailcow finds a Keycloak user by email (= the mailbox address), so
+    # a user editing their own email in the account console could point it at
+    # another address. Admin-only; names stay the user's. Also checked live.
+    import json as _json
+    cfg = REALM["components"]["org.keycloak.userprofile.UserProfileProvider"][0]["config"]["kc.user.profile.config"][0]
+    attrs = {a["name"]: a for a in _json.loads(cfg)["attributes"]}
+    assert attrs["email"]["permissions"]["edit"] == ["admin"]
+    assert attrs["username"]["permissions"]["edit"] == ["admin"]
+    assert REALM["editUsernameAllowed"] is False
+    assert "user" in attrs["firstName"]["permissions"]["edit"]
+
+
+def test_forgot_password_mails_through_mailcow_submission():
+    # PR 17: Keycloak's own reset flow; mail through mailcow's port 587 with
+    # STARTTLS and a real login, under the mail host's name (certificate),
+    # reached at avedeus-edge's gateway (the host), not over the internet.
+    smtp = REALM["smtpServer"]
+    assert REALM["resetPasswordAllowed"] is True
+    assert smtp["host"] == "${MAIL_HOSTNAME}" and smtp["port"] == "587"
+    assert smtp["starttls"] == "true" and smtp["auth"] == "true" and smtp["ssl"] == "false"
+    assert smtp["password"] == "${KEYCLOAK_SMTP_PASSWORD}" and smtp["from"] == smtp["user"]
+    assert COMPOSE["services"]["keycloak"]["extra_hosts"] == [
+        "${MAIL_HOSTNAME:?run with --env-file identity.env}:172.30.240.1"]
+
+
 def test_groups_as_code():
     assert {g["name"] for g in REALM["groups"]} == {"users", "admins"}
 

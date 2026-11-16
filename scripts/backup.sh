@@ -126,7 +126,7 @@ fi
 # keys) as a pg_dump custom-format archive, plus identity.env. Off until
 # Keycloak is deployed; once IDENTITY_ENABLED=1 a failure is a failure.
 if [ "$IDENTITY_ENABLED" = 1 ]; then
-  docker compose -f "$ID_COMPOSE" exec -T postgres pg_dump -U keycloak -d keycloak -Fc \
+  docker compose -f "$ID_COMPOSE" --env-file "${ID_COMPOSE%/*}/identity.env" exec -T postgres pg_dump -U keycloak -d keycloak -Fc \
        > "$latest/extras/keycloak.pgdump" || {
     echo "  FAILED Keycloak database backup (is the identity postgres container running?)"; fail=1; }
   cp -a "$REPO_DIR/infrastructure/identity/identity.env" "$latest/extras/identity.env" \
@@ -172,7 +172,7 @@ fi
 if [ -s "$latest/extras/keycloak.pgdump" ]; then
   # pg_restore --list reads the whole archive's table of contents: a truncated
   # or corrupt dump fails here, not at restore time.
-  if n=$(docker compose -f "$ID_COMPOSE" exec -T postgres pg_restore --list < "$latest/extras/keycloak.pgdump" | grep -c ' TABLE DATA '); then
+  if n=$(docker compose -f "$ID_COMPOSE" --env-file "${ID_COMPOSE%/*}/identity.env" exec -T postgres pg_restore --list < "$latest/extras/keycloak.pgdump" | grep -c ' TABLE DATA '); then
     echo "  ok keycloak.pgdump $n tables"
   else
     echo "  CORRUPT keycloak.pgdump"; fail=1

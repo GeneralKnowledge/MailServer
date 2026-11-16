@@ -37,7 +37,15 @@ file, the realm file, an nginx include and backup lines.
 - Password policy: at least 12 characters, not the username or email, not one
   of the last 3. Brute-force protection on (10 failures, growing wait, no
   permanent lockout). TOTP available to every user; the admin console's client
-  requires it at every sign-in (PR 15).
+  requires it at every sign-in (PR 15). Security keys and backup (recovery)
+  codes are set up by each person in the account console (PR 17).
+- **Users can't change their own email or username** (PR 17). mailcow finds a
+  Keycloak user by email, which is the mailbox address, so a user who could
+  edit it in the account console could point it at another address. Both are
+  admin-only in the realm's user profile; names stay editable. Checked against
+  a real Keycloak in CI (`test_live_users_cannot_change_their_email_or_username`).
+  A realm imported before PR 17 needs the same change by hand: Realm settings
+  → User profile → `email` and `username` → *Who can edit*: admin only.
 - Sessions: 30 minutes idle, 10 hours maximum. Login and admin events kept
   30 days; admin events never store request bodies.
 - Clients:
@@ -88,6 +96,22 @@ REST API through the public URL, so PR 12 must open
 `/auth/admin/realms/avedeus/` to mailcow's own source address only, and say
 so.
 
+**"Forgot password" mail (PR 17).** Keycloak's own reset flow sends a link to
+the person's email, which is their mailbox address (so it helps whoever still
+reads mail, for example in a mail app signed in with an app password).
+`avedeus-edge` has no route out, so Keycloak reaches mailcow's submission
+port (587, published on the host) at the network's gateway `172.30.240.1`,
+the host's own address on it: `extra_hosts` maps the mail host's name there,
+so STARTTLS verifies mailcow's real certificate. It signs in as a dedicated
+mailbox (`KEYCLOAK_SMTP_USER`) with an app password. In testing Keycloak
+reached a test server on the gateway, did STARTTLS and **refused a
+self-signed certificate**; delivery through real mailcow is not proven. On
+the server, a host firewall must allow `172.30.240.0/24` to port 587. The
+same path means every container on `avedeus-edge` can reach the host's
+published ports (seen in local testing); whether that holds on the server,
+and whether it weakens audit fix 6's "no route to Postfix", is on the
+roadmap's server checklist.
+
 ## Resources
 
 Measured on x86 in testing after start-up: Keycloak about 670 MB with the
@@ -115,7 +139,13 @@ measured on the real box beside mailcow.
    bootstrap admin, create a named admin in the master realm with TOTP, sign
    in as that admin, delete the bootstrap admin, and remove the two
    `KC_BOOTSTRAP_ADMIN_*` lines from `identity.env`.
-6. Set `IDENTITY_ENABLED=1` in `/etc/mailserver/backup.env` so the daily
+6. "Forgot password" mail (PR 17): in mailcow's admin create a mailbox
+   `noreply@<mail domain>` (small quota), make an app password for it with
+   only SMTP allowed, and put both in `identity.env` as `KEYCLOAK_SMTP_USER`
+   and `KEYCLOAK_SMTP_PASSWORD` before the first start (a realm imported
+   earlier needs Realm settings → Email filled in by hand with the same values).
+   Then use "Forgot password?" on the sign-in page once and check the mail arrives.
+7. Set `IDENTITY_ENABLED=1` in `/etc/mailserver/backup.env` so the daily
    backup includes the Keycloak database and `identity.env`, and fails loudly
    if it can't.
 
@@ -229,7 +259,7 @@ password refused as password, delete.
 
 ## Removal test (ADR 0017)
 
-`docker compose -f infrastructure/identity/docker-compose.yml down`, delete
+`docker compose -f infrastructure/identity/docker-compose.yml --env-file infrastructure/identity/identity.env down`, delete
 `site.identity.custom` from mailcow's nginx folder and restart nginx. mailcow
 falls back to its own login; the sign-up app and control plane never depended
 on Keycloak in PR 11. From PR 12, also set `IDENTITY_PROVIDER=none` in

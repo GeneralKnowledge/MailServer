@@ -1,4 +1,5 @@
-"""Invitation lifecycle: create, check, claim, redeem, release, revoke, extend.
+"""Invitation lifecycle: create, check, claim, redeem, release, revoke, extend,
+reissue (PR 17: a new link for an unused invitation; the old one stops working).
 
 Redemption is two-phase so that a failed mailcow call never uses up an
 invitation and two people can't redeem one invitation at the same time:
@@ -159,6 +160,27 @@ class Invitations:
             self.db.log("invite_extended", invitation_id=inv_id,
                         detail=f"days={days}" + (f" by={by}" if by else ""), ip=ip)
         return cur.rowcount == 1
+
+    def reissue(self, inv_id: int, days: int, ip: str | None = None, by: str = "") -> str | None:
+        """PR 17 "resend": a new secret token for an unused invitation, expiring
+        `days` from now. Only the hash is stored, so the old link can't be shown
+        again; it stops working here. Refused once redeemed, revoked or while a
+        sign-up with it is in progress. Returns the new token, or None."""
+        if days < 1 or days > 90:
+            raise ValueError("Expiry must be between 1 and 90 days")
+        token = secrets.token_urlsafe(TOKEN_BYTES)
+        now = self.db.now()
+        cur = self.db.execute(
+            """UPDATE invitations SET token_hash=?, hint=?, expires_at=?
+               WHERE id=? AND redeemed_at IS NULL AND revoked_at IS NULL
+                 AND (claimed_at IS NULL OR claimed_at<=?)""",
+            (hash_token(token), token[:6], now + days * 86400, inv_id, now - CLAIM_TIMEOUT),
+        )
+        if not cur.rowcount:
+            return None
+        self.db.log("invite_reissued", invitation_id=inv_id,
+                    detail=f"days={days}" + (f" by={by}" if by else ""), ip=ip)
+        return token
 
     def list(self, limit: int = 500) -> list[Invitation]:
         now = self.db.now()

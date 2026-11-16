@@ -92,7 +92,7 @@ case "${1:-}" in
     fi ;;
   identity)
     src="$RESTORE_DIR/${2:?backup folder name}/extras"
-    ID="docker compose -f $REPO_DIR/infrastructure/identity/docker-compose.yml"
+    ID="docker compose -f $REPO_DIR/infrastructure/identity/docker-compose.yml --env-file $REPO_DIR/infrastructure/identity/identity.env"
     [ -s "$src/keycloak.pgdump" ] || { echo "no keycloak.pgdump in $src"; exit 1; }
     [ -f "$REPO_DIR/infrastructure/identity/identity.env" ] || cp "$src/identity.env" "$REPO_DIR/infrastructure/identity/identity.env"
     $ID stop keycloak
