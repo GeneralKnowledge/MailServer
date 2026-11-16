@@ -248,6 +248,7 @@ and set it on the avedeus.ovh domain. Add the relay's `include:` to SPF.
 cd /opt/MailServer/infrastructure/registration
 sudo cp .env.example .env && sudo cp broker.env.example broker.env && sudo chmod 600 .env broker.env
 openssl rand -hex 32                                                        # SIGNUP_TOKEN in broker.env = BROKER_TOKEN in .env
+openssl rand -hex 32                                                        # MONITORING_TOKEN in broker.env (a different value)
 sudo docker compose build
 sudo docker compose run --rm registration python -m app.cli hash-password   # paste result as ADMIN_PASSWORD_HASH='…'
 sudo docker compose run --rm registration python -m app.cli new-totp       # ADMIN_TOTP_SECRET; scan the otpauth URI
@@ -255,7 +256,8 @@ openssl rand -base64 48                                                     # SE
 sudo nano broker.env .env
 ```
 
-In `broker.env`: `MAILCOW_API_KEY` = the key from B3, and `SIGNUP_TOKEN`.
+In `broker.env`: `MAILCOW_API_KEY` = the key from B3, `SIGNUP_TOKEN` and
+`MONITORING_TOKEN` (the health check uses it).
 This is the only place the key goes; the registration app refuses to start
 if it finds `MAILCOW_API_KEY` in its own `.env`.
 

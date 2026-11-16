@@ -17,7 +17,7 @@ against all three.
 | Caller | Credential (broker.env) | Operations |
 |---|---|---|
 | `signup` (the registration app) | `SIGNUP_TOKEN` + `SIGNUP_CLIENTS` | `POST /v1/addresses/check`, `POST /v1/mailboxes` |
-| `monitoring` (optional, unused until PR 13) | `MONITORING_TOKEN` + `MONITORING_CLIENTS` | `GET /v1/health`, `GET /v1/upstream` |
+| `monitoring` (`health-check.sh` via `broker.probe`) | `MONITORING_TOKEN` + `MONITORING_CLIENTS=127.0.0.1` | `GET /v1/health`, `GET /v1/upstream` |
 | anyone | none | `GET /healthz` (liveness) |
 
 Each caller presents `Authorization: Bearer <its token>` from one of its own
@@ -70,8 +70,12 @@ It is the `broker` service in
 configured by `broker.env` ([example](../infrastructure/registration/broker.env.example)).
 It is on the internal `avedeus-edge` network at `172.30.240.11` and publishes
 no port. mailcow's `API_ALLOW_FROM` must list only that address.
-`python -m broker.selfcheck` (used by `health-check.sh`) checks the mailcow
-key from inside the container.
+`scripts/health-check.sh` runs `python -m broker.probe` in the container: it
+calls `GET /v1/health` from 127.0.0.1 as the monitoring caller and prints one
+line per component, and the health check alerts once per component that
+goes degraded or down (and once when it recovers). An adapter answering
+slower than 5 s counts as degraded. `python -m broker.selfcheck` remains for
+a manual check of the mailcow key.
 
 ## Development
 

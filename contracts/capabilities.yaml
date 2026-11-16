@@ -88,7 +88,7 @@ callers:
     description: health-check.sh and the PR 13 health contract, once they call the control plane over HTTP. Metrics (PR 27) are deferred; the first read-only mailcow key belongs to PR 34's message trace.
     credential: Bearer token + source IP
     subject_from: n/a
-    status: implemented (MONITORING_TOKEN, MONITORING_CLIENTS; optional). No client uses it yet; health-check.sh still runs broker.selfcheck inside the container until PR 13 wires it to /v1/health
+    status: implemented (MONITORING_TOKEN, MONITORING_CLIENTS=127.0.0.1). Used by health-check.sh through `python -m broker.probe` inside the broker container (PR 13)
     enforced: true
     operations:
       - upstreamCheck

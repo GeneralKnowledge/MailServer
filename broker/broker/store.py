@@ -58,6 +58,18 @@ class Store:
         self.db.executescript(SCHEMA)
         self.prune_idempotency()
 
+    # ---- health ------------------------------------------------------------
+
+    def health(self) -> dict:
+        """Can we still write? Takes the write lock and lets it go, changing nothing."""
+        try:
+            with self.lock:
+                self.db.execute("BEGIN IMMEDIATE")
+                self.db.execute("ROLLBACK")
+            return {"status": "ok"}
+        except sqlite3.Error as e:
+            return {"status": "down", "detail": f"database not writable: {type(e).__name__}"}
+
     # ---- audit -------------------------------------------------------------
 
     def audit(self, *, caller: str, action: str, outcome: str, request_id: str = "",

@@ -1,9 +1,16 @@
 # 0006. Keycloak is the identity provider
 
 - Status: Accepted (2026-11-15). Plan decision E1.
-- Implemented: No (PR 11 deploys it, PR 12 connects mailcow). Proven on
-  Oracle: No. Open server check: start-up time and steady RAM/CPU on two
-  Ampere cores beside mailcow.
+- Implemented: Partly. **PR 11:** Keycloak and its own Postgres as code
+  (`infrastructure/identity/`), realm, clients and groups as code, `/auth/`
+  through mailcow's nginx with the admin console closed by default, backup
+  and restore of its database, and a start-and-import test in CI
+  (`scripts/identity-smoke.sh`). **Not deployed**: the gate below is still
+  open. PR 12 connects mailcow. Proven on Oracle: No. Open server check:
+  start-up time and steady RAM/CPU on two Ampere cores beside mailcow
+  (measured on x86 in testing: about 670 MB for Keycloak with a 512 MB heap,
+  60 MB for Postgres). PR 11 runs a dedicated Postgres server rather than a
+  shared one, which is stricter ([0019](0019-identity-network-placement.md)).
 
 ## Context
 

@@ -8,3 +8,4 @@ infrastructure/registration/broker.env
 m0-report-*.txt
 # Local, per-machine compose overrides
 infrastructure/registration/docker-compose.override.yml
+infrastructure/identity/identity.env

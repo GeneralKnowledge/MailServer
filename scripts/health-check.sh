@@ -2,6 +2,9 @@
 # Health check. Exit code 0 = healthy, 1 = something needs attention.
 # Usage: scripts/health-check.sh [mail.example.com]     (run on the server, as root)
 #
+# The control plane's own health (mailcow adapter, its database) comes from
+# GET /v1/health via `python -m broker.probe` (PR 13).
+#
 # Alerts (see scripts/lib/alerts.sh, config in /etc/mailserver/alerts.env):
 #   - one push alert when the set of problems changes, and one when all clear;
 #     not every 15 minutes while a problem lasts
@@ -29,7 +32,8 @@ ok() { echo "ok: $*"; }
 
 echo "== Containers"
 cd "$MAILCOW_DIR" 2>/dev/null || bad mailcow-dir "mailcow dir $MAILCOW_DIR missing"
-for project in mailcowdockerized registration; do
+# identity (Keycloak) only has containers once it is deployed (ADR 0006 gate).
+for project in mailcowdockerized registration identity; do
   while read -r name status; do
     [ -z "$name" ] && continue
     case "$status" in
@@ -58,10 +62,24 @@ echo "== Registration app"
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "https://$HOST$BASE_PATH/healthz")
 if [ "$code" = 200 ]; then ok "registration /healthz"; else bad registration "registration /healthz returned $code"; fi
 
-echo "== Provisioning broker -> mailcow API"
-if out=$(docker compose -f "$REPO_DIR/infrastructure/registration/docker-compose.yml" exec -T broker \
-           python -m broker.selfcheck 2>&1); then ok "$out"
-else bad broker-api "broker can't use the mailcow API: $(echo "$out" | tail -n 1)"; fi
+echo "== Control plane health (/v1/health, as the monitoring caller)"
+# One problem per component, keyed by name, so a mailcow outage and a
+# database problem alert separately and each clears on its own.
+out=$(docker compose -f "$REPO_DIR/infrastructure/registration/docker-compose.yml" exec -T broker \
+        python -m broker.probe 2>&1)
+rc=$?
+if [ "$rc" -le 1 ]; then
+  while IFS=$'\t' read -r component status detail; do
+    [ -z "$component" ] && continue
+    case "$status" in
+      ok) ok "control plane: $component ${detail:+($detail)}" ;;
+      "") bad control-plane "control plane health unavailable: $component" ;;  # not probe output (e.g. container down)
+      *) bad "control-plane:$component" "control plane: $component is $status${detail:+: $detail}" ;;
+    esac
+  done <<<"$out"
+else
+  bad control-plane "control plane health unavailable: $(echo "$out" | tail -n 1 | cut -f3-)"
+fi
 
 echo "== Mail queue"
 q=$(docker compose exec -T postfix-mailcow postqueue -j 2>/dev/null | wc -l)

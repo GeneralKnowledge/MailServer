@@ -76,7 +76,36 @@ jobs:
             contracts/requirements-dev.txt
       # Checks the contracts against each other and against the real broker routes.
       - run: pip install -r broker/requirements.txt -r contracts/requirements-dev.txt
-      - run: python -m pytest -q contracts
+      - run: python -m pytest -q contracts infrastructure/identity
+
+  identity:
+    name: Identity stack (Keycloak start and realm import)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # Code-only proof for PR 11: the compose file starts, the realm imports
+      # and behaves as the ADRs require. Not a substitute for the ADR 0006
+      # gate on the real server.
+      - name: Start Keycloak and Postgres, check the realm
+        run: |
+          scripts/create-edge-network.sh
+          r() { openssl rand -hex 24; }
+          db=$(r)
+          cat > infrastructure/identity/identity.env <<EOF
+          KC_HOSTNAME=https://mx.example.test/auth
+          POSTGRES_PASSWORD=$db
+          KC_DB_PASSWORD=$db
+          KC_BOOTSTRAP_ADMIN_USERNAME=bootstrap-admin
+          KC_BOOTSTRAP_ADMIN_PASSWORD=$(r)
+          MAIL_HOSTNAME=mx.example.test
+          MAILCOW_OIDC_SECRET=$(r)
+          CONTROL_PLANE_OIDC_SECRET=$(r)
+          EOF
+          sed -i 's/^ *//' infrastructure/identity/identity.env
+          scripts/identity-smoke.sh
 
   audit:
     name: Dependency vulnerabilities

@@ -66,8 +66,8 @@ paths:
       tags: [health]
       summary: Checks that the mailcow key and IP allow-list work.
       description: |
-        No client calls this over HTTP today. health-check.sh runs the same
-        check with `python -m broker.selfcheck` inside the broker container.
+        Kept for manual checks. health-check.sh uses /v1/health, which
+        includes the same mailcow check.
       x-avedeus-status: implemented
       responses:
         "200":
@@ -90,7 +90,11 @@ paths:
       tags: [health]
       summary: Health of the control plane and every adapter, in one shape.
       description: |
-        Implemented in PR 9. PR 13 wires health-check.sh and the alerts to it.
+        Implemented in PR 9; since PR 13 health-check.sh reads it every 15
+        minutes (via `python -m broker.probe`) and alerts once per component
+        that is degraded or down. An adapter answering slower than 5 s is
+        `degraded`; a control-plane database that can't take its write lock is
+        `down`.
       x-avedeus-status: implemented
       responses:
         "200":
