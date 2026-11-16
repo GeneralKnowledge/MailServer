@@ -9,7 +9,7 @@ import io
 
 import httpx
 import pytest
-from conftest import AUTH, MON_AUTH, Clock
+from conftest import ADMIN_USER, AUTH, MON_AUTH, Clock, StubAdminTokens
 from fastapi.testclient import TestClient
 
 from broker import trace as tracing
@@ -19,7 +19,7 @@ from broker.main import create_app
 from broker.store import Store
 from fake_mailcow import API_KEY, RO_API_KEY, FakeMailcow
 
-ADMIN = {"Authorization": "Bearer " + "a" * 40}
+ADMIN = {"Authorization": "Bearer " + "a" * 40, **ADMIN_USER}
 T0 = 1_800_000_000.0 - 3600  # an hour before the test clock
 
 
@@ -83,7 +83,8 @@ def tctx(env):
     c.store = Store(":memory:", clock=c.clock)
     c.ro = MailcowClient(s.mailcow_api_url, s.mailcow_read_only_api_key, transport=c.fake.transport())
     rw = MailcowClient(s.mailcow_api_url, s.mailcow_api_key, transport=c.fake.transport())
-    c.client = TestClient(create_app(s, mailcow=rw, mailcow_read_only=c.ro, store=c.store, clock=c.clock))
+    c.client = TestClient(create_app(s, mailcow=rw, mailcow_read_only=c.ro, store=c.store, clock=c.clock,
+                                     admin_user_tokens=StubAdminTokens()))
     return c
 
 
@@ -176,7 +177,9 @@ def test_without_read_only_key_the_trace_says_so(env):
     fake = FakeMailcow()
     app = create_app(s, mailcow=MailcowClient(s.mailcow_api_url, API_KEY, transport=fake.transport()),
                      store=Store(":memory:"), clock=Clock())
-    r = TestClient(app).get("/v1/trace", params={"address": "a@b.c"}, headers=ADMIN)
+    # No identity provider either: only break-glass from inside the container works (PR 15).
+    assert TestClient(app).get("/v1/trace", headers=ADMIN).status_code == 403
+    r = TestClient(app, client=("127.0.0.1", 40000)).get("/v1/trace", params={"address": "a@b.c"}, headers=ADMIN)
     assert r.status_code == 502 and "MAILCOW_READ_ONLY_API_KEY" in r.json()["detail"]
 
 

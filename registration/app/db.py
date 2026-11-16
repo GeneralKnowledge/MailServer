@@ -97,12 +97,14 @@ class Database:
             (self.now(), kind, invitation_id, address, detail[:2000], ip),
         )
 
-    def prune(self, *, event_days: int, admin_session_seconds: int) -> None:
-        """Drop old event-log rows (they hold client IPs) and expired admin sessions."""
+    def prune(self, *, event_days: int) -> None:
+        """Drop old event-log rows (they hold client IPs). Also empties the
+        admin_sessions and state tables left from before PR 15."""
         now = self.now()
         if event_days > 0:
             self.execute("DELETE FROM events WHERE at < ?", (now - event_days * 86400,))
-        self.execute("DELETE FROM admin_sessions WHERE created_at < ?", (now - admin_session_seconds,))
+        self.execute("DELETE FROM admin_sessions")
+        self.execute("DELETE FROM state WHERE key='totp_last_step'")
 
     def backup_to(self, dest: str) -> None:
         """Consistent online copy (used by scripts/backup.sh via the CLI)."""

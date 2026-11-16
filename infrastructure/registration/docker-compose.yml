@@ -79,6 +79,31 @@ services:
       options: { max-size: "10m", max-file: "5" }
     depends_on: [broker]
 
+  admin-console:
+    # PR 15. Only with Keycloak (ADR 0006 gate): docker compose --profile identity up -d admin-console
+    profiles: ["identity"]
+    build: ../../admin
+    image: mailserver-admin:local
+    env_file: admin.env    # its Keycloak client secret, control-plane token and sign-up console token
+    restart: unless-stopped
+    networks:
+      edge:
+        # Fixed address: the control plane's admin caller and the sign-up
+        # app's internal API accept the console only from it.
+        ipv4_address: 172.30.240.14
+        aliases: [admin-console]
+    # No volume: sessions live in memory, nothing to back up.
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 100
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+    depends_on: [broker, registration]
+
 volumes:
   registration-data:
   control-plane-data:

@@ -109,14 +109,8 @@ class MailcowClient:
             return any(isinstance(m, dict) and m.get("username", "").lower() == address.lower() for m in data)
         return False
 
-    def mailbox_info(self, address: str) -> dict | None:
-        """Quota and state of one mailbox, or None if it doesn't exist."""
-        data = self._request("GET", f"/api/v1/get/mailbox/{quote(address, safe='@')}")
-        if isinstance(data, list):
-            data = next((m for m in data if isinstance(m, dict)), {})
-        if not isinstance(data, dict) or str(data.get("username", "")).lower() != address.lower():
-            return None
-
+    @staticmethod
+    def _summary(data: dict) -> dict:
         def mb(v) -> int:
             try:
                 return int(int(v) / 1048576)
@@ -124,6 +118,26 @@ class MailcowClient:
                 return 0
         return {"name": str(data.get("name", ""))[:100], "quota_mb": mb(data.get("quota")),
                 "used_mb": mb(data.get("quota_used")), "active": str(data.get("active", "1")) in ("1", "True", "true")}
+
+    def mailbox_info(self, address: str) -> dict | None:
+        """Quota and state of one mailbox, or None if it doesn't exist."""
+        data = self._request("GET", f"/api/v1/get/mailbox/{quote(address, safe='@')}")
+        if isinstance(data, list):
+            data = next((m for m in data if isinstance(m, dict)), {})
+        if not isinstance(data, dict) or str(data.get("username", "")).lower() != address.lower():
+            return None
+        return self._summary(data)
+
+    def mailbox_summaries(self, domain: str) -> list[dict]:
+        """Address, name, quota, use and state of every mailbox on one domain (PR 15, read-only)."""
+        data = self._request("GET", "/api/v1/get/mailbox/all")
+        if data == {}:
+            return []
+        if not isinstance(data, list):
+            raise MailcowError("unavailable", f"unexpected response: {str(data)[:300]}")
+        d = "@" + domain.lower()
+        return [{"address": str(m["username"]).lower(), **self._summary(m), "created": str(m.get("created", ""))[:32]}
+                for m in data if isinstance(m, dict) and str(m.get("username", "")).lower().endswith(d)]
 
     def alias_exists(self, address: str) -> bool:
         data = self._request("GET", "/api/v1/get/alias/all")

@@ -58,6 +58,10 @@ class Settings:
     # issuer (the public URL) and be issued to this client.
     keycloak_issuer: str = ""
     portal_client_id: str = "avedeus-portal"
+    admin_client_id: str = "avedeus-admin"
+    admin_group: str = "admins"
+    # PR 15: admin tokens must show a second factor (amr contains "otp").
+    admin_require_otp: bool = True
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -133,4 +137,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         trace_log_lines=num("TRACE_LOG_LINES", 10000),
         keycloak_issuer=issuer,
         portal_client_id=src.get("PORTAL_CLIENT_ID", "").strip() or "avedeus-portal",
+        admin_client_id=src.get("ADMIN_CLIENT_ID", "").strip() or "avedeus-admin",
+        admin_group=src.get("ADMIN_GROUP", "").strip() or "admins",
+        admin_require_otp=src.get("ADMIN_REQUIRE_OTP", "true").strip().lower() in {"1", "true", "yes", "on"},
     )

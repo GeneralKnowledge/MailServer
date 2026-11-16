@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Message trace · {{ brand }}{% endblock %}
+{% block content %}
+<h1>Message trace</h1>
+<p class="muted">Read-only. Follows a message through mailcow's logs; never shows content or subjects.</p>
+<form method="get" action="{{ base }}/trace" class="inline">
+  <label>Address<input name="address" value="{{ form.address }}" maxlength="254"></label>
+  <label>Message-ID<input name="message_id" value="{{ form.message_id }}" maxlength="998"></label>
+  <label>Hours back<input name="hours" type="number" min="1" max="720" value="{{ form.hours }}"></label>
+  <button type="submit">Trace</button>
+</form>
+{% if data and data.window is defined %}
+<p class="muted">Searched {{ data.window.postfix_lines }} Postfix log lines; oldest from {{ data.window.oldest_log_entry | ts }}.</p>
+{% for n in data.notes %}<p class="notice">{{ n.detail }}</p>{% endfor %}
+{% for m in data.messages %}
+<h2>{{ m.queue_id }} {% if m.message_id %}<small class="muted">{{ m.message_id }}</small>{% endif %}</h2>
+<p>From {{ m["from"] or "?" }} to {{ (m.to or []) | join(", ") or "?" }}, received {{ m.received_at | ts }}</p>
+<ul>{% for st in m.stages %}<li><strong>{{ st.stage | replace("_", " ") }}</strong> {{ st.time | ts }}: {{ st.detail }}</li>{% endfor %}</ul>
+{% endfor %}
+{% for rj in data.rejections %}
+<h2>Rejected {{ rj.time | ts }}</h2>
+<p>From {{ rj["from"] or "?" }} to {{ rj.to }}: {{ rj.detail }}</p>
+{% endfor %}
+{% if not data.messages and not data.rejections %}<p>Nothing matched in the retained logs.</p>{% endif %}
+<h2>What this cannot tell you</h2>
+<ul class="muted">{% for l in data.limits %}<li>{{ l }}</li>{% endfor %}</ul>
+{% endif %}
+{% endblock %}

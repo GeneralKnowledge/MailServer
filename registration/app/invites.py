@@ -74,7 +74,8 @@ class Invitations:
     def __init__(self, db: Database):
         self.db = db
 
-    def create(self, *, quota_mb: int, days: int, note: str = "", ip: str | None = None) -> tuple[str, Invitation]:
+    def create(self, *, quota_mb: int, days: int, note: str = "", ip: str | None = None,
+               by: str = "") -> tuple[str, Invitation]:
         """Returns (secret token, invitation). The token is shown once and never stored."""
         if days < 1 or days > 90:
             raise ValueError("Expiry must be between 1 and 90 days")
@@ -84,9 +85,11 @@ class Invitations:
         now = self.db.now()
         cur = self.db.execute(
             "INSERT INTO invitations(token_hash, hint, note, quota_mb, created_at, expires_at) VALUES (?,?,?,?,?,?)",
-            (hash_token(token), token[:6], note.strip()[:200], quota_mb, now, now + days * 86400),
+            (hash_token(token), token[:6], " ".join("".join(c if c.isprintable() else " " for c in note).split())[:200],
+             quota_mb, now, now + days * 86400),
         )
-        self.db.log("invite_created", invitation_id=cur.lastrowid, detail=f"quota={quota_mb}MB days={days}", ip=ip)
+        self.db.log("invite_created", invitation_id=cur.lastrowid,
+                    detail=f"quota={quota_mb}MB days={days}" + (f" by={by}" if by else ""), ip=ip)
         return token, self.get(cur.lastrowid)
 
     def get(self, inv_id: int) -> Invitation | None:
@@ -130,7 +133,7 @@ class Invitations:
         )
         return cur.rowcount == 1
 
-    def revoke(self, inv_id: int, ip: str | None = None) -> bool:
+    def revoke(self, inv_id: int, ip: str | None = None, by: str = "") -> bool:
         """Revoke an unused invitation. Refused while a sign-up is in progress
         (the mailbox may already exist); try again once it has finished."""
         now = self.db.now()
@@ -141,10 +144,10 @@ class Invitations:
             (now, inv_id, now - CLAIM_TIMEOUT),
         )
         if cur.rowcount:
-            self.db.log("invite_revoked", invitation_id=inv_id, ip=ip)
+            self.db.log("invite_revoked", invitation_id=inv_id, detail=f"by={by}" if by else "", ip=ip)
         return cur.rowcount == 1
 
-    def extend(self, inv_id: int, days: int, ip: str | None = None) -> bool:
+    def extend(self, inv_id: int, days: int, ip: str | None = None, by: str = "") -> bool:
         """Set expiry to now + days (also revives an expired, unused invitation)."""
         if days < 1 or days > 90:
             raise ValueError("Expiry must be between 1 and 90 days")
@@ -153,7 +156,8 @@ class Invitations:
             (self.db.now() + days * 86400, inv_id),
         )
         if cur.rowcount:
-            self.db.log("invite_extended", invitation_id=inv_id, detail=f"days={days}", ip=ip)
+            self.db.log("invite_extended", invitation_id=inv_id,
+                        detail=f"days={days}" + (f" by={by}" if by else ""), ip=ip)
         return cur.rowcount == 1
 
     def list(self, limit: int = 500) -> list[Invitation]:

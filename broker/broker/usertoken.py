@@ -33,6 +33,7 @@ class UserTokenVerifier:
     jwks_url: str
     issuer: str
     authorized_party: str           # the client the token was issued to, e.g. avedeus-portal
+    required_group: str | None = None  # e.g. "admins" for the admin console (PR 15)
     transport: httpx.BaseTransport | None = None
     clock: object = time.time
     leeway: int = 30
@@ -78,7 +79,11 @@ class UserTokenVerifier:
         except jwt.PyJWTError as e:
             raise TokenError(f"invalid token: {type(e).__name__}") from e
         if claims.get("azp") != self.authorized_party:
-            raise TokenError("token was not issued to the portal")
+            raise TokenError(f"token was not issued to {self.authorized_party}")
         if claims.get("typ", "Bearer") != "Bearer":
             raise TokenError("not an access token")
+        if self.required_group:
+            groups = {str(g).lstrip("/") for g in claims.get("groups") or []}
+            if self.required_group not in groups:
+                raise TokenError(f"not in the {self.required_group} group")
         return claims

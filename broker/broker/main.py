@@ -13,6 +13,14 @@ idempotency keys and health. No workflow engine, event bus or plugins.
     POST /v1/mailboxes         create <local_part>@<domain>        (signup; superseded by /v1/accounts)
     GET  /v1/trace             read-only message trace             (admin; PR 34)
     GET  /v1/me                the signed-in user's own account     (portal; PR 14)
+    GET  /v1/accounts          mailboxes on the mail domain         (admin; PR 15)
+    GET  /v1/audit             recent audit events                  (admin; PR 15)
+
+Admin calls carry the admin's own Keycloak access token (X-User-Token): it
+must be issued to avedeus-admin, carry the admins group and show a second
+factor (ADR 0020). The one exception is break-glass from inside the broker
+container (127.0.0.1), for the command-line tools. Invitations stay in the
+sign-up app (ADR 0020); the control plane never sees their tokens.
 
 Every caller has its own token and source addresses (config.py), and may use
 only the operations in capabilities.py. Every state-changing call and every
@@ -50,6 +58,9 @@ log = logging.getLogger("broker")
 DAY = 86400
 IDEMPOTENCY_HEADER = "idempotency-key"
 SLOW_UPSTREAM_MS = 5000  # an answer slower than this marks the adapter degraded
+# Break-glass (ADR 0020): admin calls from inside the broker's own container
+# (python -m broker.trace) need the admin token but no user token.
+BREAK_GLASS_HOSTS = frozenset({"127.0.0.1", "::1"})
 
 
 class CheckRequest(BaseModel):
@@ -96,7 +107,7 @@ def _client_allowed(host: str, allowed: tuple[str, ...]) -> bool:
 def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | None = None,
                store: Store | None = None, keycloak: KeycloakClient | None = None,
                mailcow_read_only: MailcowClient | None = None, user_tokens: UserTokenVerifier | None = None,
-               clock=time.time) -> FastAPI:
+               admin_user_tokens: UserTokenVerifier | None = None, clock=time.time) -> FastAPI:
     s = settings or load_settings()
     mc = mailcow or MailcowClient(s.mailcow_api_url, s.mailcow_api_key, s.mailcow_tls_hostname, s.mailcow_verify_tls)
     db = store or Store(s.db_path, clock=clock)
@@ -110,6 +121,12 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
                                                 s.mailcow_tls_hostname, s.mailcow_verify_tls)
                                   if s.mailcow_read_only_api_key else None)
     create_lock = threading.Lock()  # one creation at a time: keeps the cap and checks exact
+    jwks = f"{s.keycloak_url}/realms/{s.keycloak_realm}/protocol/openid-connect/certs"
+    verifier = user_tokens or (UserTokenVerifier(jwks, s.keycloak_issuer, s.portal_client_id)
+                               if kc and s.keycloak_issuer else None)
+    admin_tokens = admin_user_tokens or (UserTokenVerifier(jwks, s.keycloak_issuer, s.admin_client_id,
+                                                           required_group=s.admin_group)
+                                         if kc and s.keycloak_issuer else None)
 
     def host_of(request: Request) -> str:
         return request.client.host if request.client else ""
@@ -119,7 +136,8 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
         caller = getattr(request.state, "caller", None)
         try:
             db.audit(caller=caller.name if caller else "unknown", source_ip=host_of(request) or None,
-                     request_id=getattr(request.state, "request_id", ""), **kw)
+                     request_id=getattr(request.state, "request_id", ""),
+                     actor=getattr(request.state, "actor", None), **kw)
         except Exception:  # noqa: BLE001
             log.exception("could not write audit event %s", kw.get("action"))
 
@@ -127,6 +145,7 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
         """Runs before every route: who is calling, and may they use this operation?"""
         request.state.request_id = uuid.uuid4().hex[:16]
         request.state.caller = None
+        request.state.actor = None
         op = request.scope["route"].operation_id
         if op in PUBLIC:
             return
@@ -150,6 +169,26 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
             log.warning("caller %s may not use %s", caller.name, op)
             audit(request, action="auth.refused", outcome="refused", operation=op, error_kind="forbidden")
             raise Refused(403, "forbidden", f"{caller.name} may not use {op}")
+        if caller.name == "admin":
+            admin_user(request, host, op)
+
+    def admin_user(request: Request, host: str, op: str) -> None:
+        """The person behind an admin call (ADR 0020): a verified Keycloak access
+        token for avedeus-admin, in the admins group, signed in with a second factor."""
+        if host in BREAK_GLASS_HOSTS:
+            request.state.actor = {"kind": "token", "id": "admin-break-glass"}
+            return
+        if admin_tokens is None:
+            audit(request, action="auth.refused", outcome="refused", operation=op, error_kind="forbidden")
+            raise Refused(403, "forbidden", "admin calls need the identity provider (IDENTITY_PROVIDER=keycloak)")
+        try:
+            claims = admin_tokens.verify(request.headers.get("x-user-token", ""))
+            if s.admin_require_otp and "otp" not in (claims.get("amr") or []):
+                raise TokenError("signed in without a second factor")
+        except TokenError as e:
+            audit(request, action="auth.refused", outcome="refused", operation=op, error_kind="unauthorized")
+            raise Refused(401, "unauthorized", f"admin user token: {e}") from e
+        request.state.actor = {"kind": "admin", "id": str(claims["sub"])[:128]}
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, dependencies=[Depends(authorize)])
     app.state.store = db
@@ -203,10 +242,6 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
 
     # ---- portal: the signed-in user's own account (PR 14) -------------------------
 
-    verifier = user_tokens or (UserTokenVerifier(
-        f"{s.keycloak_url}/realms/{s.keycloak_realm}/protocol/openid-connect/certs",
-        s.keycloak_issuer, s.portal_client_id) if kc and s.keycloak_issuer else None)
-
     @app.get("/v1/me", operation_id="getOwnAccount")
     def own_account(request: Request):
         if kc is None or verifier is None:
@@ -253,6 +288,31 @@ def create_app(settings: Settings | None = None, *, mailcow: MailcowClient | Non
         audit(request, action="message.trace", outcome="ok",
               counts={"messages": len(result["messages"]), "rejections": len(result["rejections"])}, **ctx)
         return result
+
+    # ---- admin: accounts, audit (PR 15) -----------------------------------------
+
+    @app.get("/v1/accounts", operation_id="listAccounts")
+    def list_accounts():
+        """Read-only: mailcow's mailboxes on the mail domain, with what the
+        control plane knows of each (identity link)."""
+        try:
+            boxes = (mc_ro or mc).mailbox_summaries(s.mail_domain)
+        except MailcowError as e:
+            return _err(502, e.kind, e.detail)
+        linked = set(db.links(kc.name)) if kc else set()
+        accounts = [{**b, "identity_linked": b["address"] in linked}
+                    for b in sorted(boxes, key=lambda b: b["address"])]
+        return {"ok": True, "identity_provider": s.identity_provider, "accounts": accounts}
+
+    @app.get("/v1/audit", operation_id="readAudit")
+    def read_audit(limit: int = Query(100, ge=1, le=500), action: str | None = Query(None, max_length=64),
+                   outcome: str | None = Query(None, pattern="^(ok|refused|failed)$")):
+        events = db.events(5000 if action or outcome else limit)
+        if action:
+            events = [e for e in events if e["action"] == action or e["action"].startswith(action.rstrip(".") + ".")]
+        if outcome:
+            events = [e for e in events if e["outcome"] == outcome]
+        return {"ok": True, "events": events[:limit]}
 
     # ---- signup -------------------------------------------------------------
 

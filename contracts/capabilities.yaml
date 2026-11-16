@@ -50,13 +50,13 @@ callers:
       # Rules (PR 23-25) are dropped: SOGo owns them (ADR 0014).
 
   admin:
-    description: Admin console in its own container at /admin (PR 15). Until then, the admin CLI on the server (python -m broker.trace).
-    credential: "PR 34: bearer token (ADMIN_TOKEN) + source IP (ADMIN_CLIENTS=127.0.0.1, i.e. from inside the broker container). PR 15 adds the admin's Keycloak token in the admin group, TOTP and the admin console's address."
-    subject_from: verified Keycloak token (from PR 15); the trace has no subject, only a query
-    status: implemented for traceMessage (PR 34); the rest planned (PR 15, 16, 28)
+    description: "Admin console in its own container at /console (PR 15; mailcow keeps /admin), and the admin CLI on the server (python -m broker.trace, break-glass)."
+    credential: "Bearer token (ADMIN_TOKEN) + source IP (ADMIN_CLIENTS=127.0.0.1,172.30.240.14) + from the console, the admin's Keycloak access token in X-User-Token (signature, issuer, expiry, azp=avedeus-admin, group admins, amr contains otp). From 127.0.0.1 the token alone (break-glass, audited as actor token/admin-break-glass). ADR 0020."
+    subject_from: verified Keycloak token (sub) as the actor; the trace, accounts list and audit read have no subject
+    status: implemented for traceMessage (PR 34), listAccounts and readAudit (PR 15); lifecycle planned (PR 16)
     enforced: true
     operations:
-      - listAccounts
+      - listAccounts        # PR 15: read-only
       - getAccount
       - suspendAccount
       - reactivateAccount
@@ -64,7 +64,7 @@ callers:
       - forcePasswordReset
       - scheduleDeletion
       - cancelDeletion
-      - readAudit
+      - readAudit           # PR 15: read-only, recent events (filters by account and time: PR 28)
       - traceMessage        # PR 34: read-only message trace, admin only
 
   pm-token:

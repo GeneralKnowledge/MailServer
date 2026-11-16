@@ -135,6 +135,71 @@
         "web-origins"
       ],
       "optionalClientScopes": []
+    },
+    {
+      "clientId": "avedeus-admin",
+      "name": "Avedeus admin console (/console)",
+      "description": "The admin console (PR 15, ADR 0020): browser sign-in with code + PKCE, always password and one-time code. Its tokens carry groups and amr, and the control plane verifies them.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${ADMIN_OIDC_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "fullScopeAllowed": false,
+      "rootUrl": "https://${MAIL_HOSTNAME}/console/",
+      "redirectUris": [
+        "https://${MAIL_HOSTNAME}/console/callback"
+      ],
+      "webOrigins": [
+        "https://${MAIL_HOSTNAME}"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "https://${MAIL_HOSTNAME}/console/",
+        "access.token.lifespan": "300"
+      },
+      "authenticationFlowBindingOverrides": {
+        "browser": "a7ede115-0000-4000-8000-00000000c015"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "groups",
+            "full.path": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "amr",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-amr-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ],
+      "defaultClientScopes": [
+        "basic",
+        "acr",
+        "profile",
+        "web-origins"
+      ],
+      "optionalClientScopes": []
     }
   ],
   "users": [
@@ -197,5 +262,49 @@
         }
       }
     ]
-  }
+  },
+  "authenticatorConfig": [
+    {
+      "alias": "admin-console-pwd",
+      "config": {
+        "default.reference.value": "pwd",
+        "default.reference.maxAge": "0"
+      }
+    },
+    {
+      "alias": "admin-console-otp",
+      "config": {
+        "default.reference.value": "otp",
+        "default.reference.maxAge": "0"
+      }
+    }
+  ],
+  "authenticationFlows": [
+    {
+      "id": "a7ede115-0000-4000-8000-00000000c015",
+      "alias": "admin console browser",
+      "description": "PR 15: the admin console's own browser flow. No SSO cookie shortcut, no identity providers: password and one-time code at every sign-in (a user without one sets it up first).",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-username-password-form",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "admin-console-pwd"
+        },
+        {
+          "authenticator": "auth-otp-form",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false,
+          "authenticatorConfig": "admin-console-otp"
+        }
+      ]
+    }
+  ]
 }

@@ -69,13 +69,10 @@ sudo /opt/MailServer/scripts/health-check.sh mail.example.com
    sudo cp .env.example .env && sudo cp broker.env.example broker.env && sudo chmod 600 .env broker.env
    openssl rand -hex 32                                                        # -> SIGNUP_TOKEN (broker.env) = BROKER_TOKEN (.env)
    sudo docker compose build
-   sudo docker compose run --rm registration python -m app.cli hash-password   # -> ADMIN_PASSWORD_HASH
-   sudo docker compose run --rm registration python -m app.cli new-totp       # -> ADMIN_TOTP_SECRET, scan the URI
    openssl rand -base64 48                                                     # -> SESSION_SECRET
    sudo nano broker.env   # MAILCOW_API_KEY, SIGNUP_TOKEN, MONITORING_TOKEN (its own value)
    sudo nano .env         # BROKER_TOKEN, domain, secrets
    ```
-   In `.env`, the hash contains `$` characters; wrap it in single quotes.
 3. **Start.** `sudo docker compose up -d`
 4. **Proxy.**
    ```sh
@@ -95,8 +92,9 @@ sudo /opt/MailServer/scripts/health-check.sh mail.example.com
    Docker creates a directory where the empty CSS file should be. The script
    brands the invite site, SOGo, and mailcow's own login page (logo, names,
    plum buttons), which is where `/SOGo` sends people to sign in.
-6. Open `https://mail.example.com/join/admin`, sign in, create a test
-   invitation, register with it, then log in to SOGo with the new address.
+6. Create a test invitation (`sudo docker compose exec registration python -m app.cli create-invite`),
+   register with it, then log in to SOGo with the new address. The web admin
+   console (`/console/`) comes with Keycloak ([admin-console.md](admin-console.md)).
 
 ## Updates
 

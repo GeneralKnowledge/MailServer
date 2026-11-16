@@ -4,10 +4,13 @@ A small FastAPI app that lets invited people create a mailbox on mailcow.
 It never talks to mailcow or holds its API key: it asks the provisioning
 broker ([`broker/`](../broker/README.md)) to check an address or create a
 mailbox. It keeps its own data (invitations and an event log) in SQLite.
+Since PR 15 it has no admin pages: the admin console (`admin/`, at
+`/console`) manages invitations through this app's internal API
+([ADR 0020](../docs/adr/0020-admin-console-and-invitations.md)).
 
 - Public: `/join/` (enter a code), `/join/i/<token>` (invite link),
   `/join/register`, `/join/check` (username availability, needs a valid invite)
-- Admin: `/join/admin` (password + TOTP)
+- Internal (admin console only, never through nginx): `/internal/v1/invitations`
 - Health: `/join/healthz`
 - CLI: `python -m app.cli --help`
 
@@ -25,7 +28,7 @@ pytest -q
 The tests run the real broker in-process, with `broker/tests/fake_mailcow.py`
 (an in-memory stand-in for mailcow's `/api/v1` endpoints) behind it, and cover the brief's acceptance criteria:
 valid/expired/revoked/reused invitations, duplicate and reserved usernames,
-failed provisioning not consuming the invitation, admin auth and rate limits.
+failed provisioning not consuming the invitation, the internal API's checks and rate limits.
 
 The fake mimics mailcow's response format but is not mailcow. The real API
 must be checked once in M3 (see "Real API check" below).

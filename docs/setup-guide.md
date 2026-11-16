@@ -251,8 +251,6 @@ sudo cp .env.example .env && sudo cp broker.env.example broker.env && sudo chmod
 openssl rand -hex 32                                                        # SIGNUP_TOKEN in broker.env = BROKER_TOKEN in .env
 openssl rand -hex 32                                                        # MONITORING_TOKEN in broker.env (a different value)
 sudo docker compose build
-sudo docker compose run --rm registration python -m app.cli hash-password   # paste result as ADMIN_PASSWORD_HASH='…'
-sudo docker compose run --rm registration python -m app.cli new-totp       # ADMIN_TOTP_SECRET; scan the otpauth URI
 openssl rand -base64 48                                                     # SESSION_SECRET
 sudo nano broker.env .env
 ```
@@ -262,12 +260,10 @@ In `broker.env`: `MAILCOW_API_KEY` = the key from B3, `SIGNUP_TOKEN` and
 This is the only place the key goes; the registration app refuses to start
 if it finds `MAILCOW_API_KEY` in its own `.env`.
 
-In `.env`: `BROKER_TOKEN` = the same value as `SIGNUP_TOKEN`; `ADMIN_USERNAME` = a name of
-your choice; wrap the password hash in single quotes;
-`ADMIN_ALLOWED_IPS=<your home IP or VPN range>` so the admin page is invisible
-to everyone else (it returns 404). The app refuses to start without it unless
-you set `ADMIN_ALLOW_ANY=1`; if your home IP changes, update it here and run
-`docker compose up -d`, and use `python -m app.cli` over SSH meanwhile.
+In `.env`: `BROKER_TOKEN` = the same value as `SIGNUP_TOKEN`. The sign-up app
+has no admin pages (PR 15): until Keycloak and the admin console are deployed,
+invitations are made over SSH with `python -m app.cli`
+([admin-console.md](admin-console.md#without-keycloak-today)).
 
 ```sh
 sudo /opt/MailServer/scripts/create-edge-network.sh   # avedeus-edge, must exist before mailcow restarts
@@ -282,7 +278,7 @@ cd /opt/MailServer/infrastructure/registration && sudo docker compose up -d
 
 Then:
 
-1. `https://mail.avedeus.ovh/join/admin` → sign in → create an invitation.
+1. `sudo docker compose exec registration python -m app.cli create-invite --note test` → copy the link.
 2. Open the link in a private window → choose `testinvite` → create.
 3. Sign in to webmail as `testinvite@avedeus.ovh`; send yourself a message.
 4. Open the same link again: it must say it's already been used.
@@ -341,7 +337,7 @@ minutes, `docker start` → one "all clear"; the restore test row is filled in.
 ## Part F — Go-live checklist
 
 - [ ] mailcow admin: password changed, TOTP on
-- [ ] Invite admin: TOTP set, `ADMIN_ALLOWED_IPS` set (or `ADMIN_ALLOW_ANY=1` as a conscious choice)
+- [ ] Invitations: made with the CLI over SSH; the admin console (`/console/`) waits for Keycloak
 - [ ] `setup.sh` printed "sshd hardened and verified"
 - [ ] SSH: key-only, port 22 limited to your IP in the security list
 - [ ] Only the ports in A3 are open (check from outside: `nc -zv mail.avedeus.ovh 143` must fail)

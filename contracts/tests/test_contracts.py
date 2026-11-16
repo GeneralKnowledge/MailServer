@@ -170,7 +170,9 @@ def test_tokens_cannot_exceed_portal(caps):
 
 SIGNUP = {"Authorization": "Bearer " + "s" * 40}
 MONITORING = {"Authorization": "Bearer " + "m" * 40}
-ADMIN = {"Authorization": "Bearer " + "a" * 40}
+# PR 15: admin calls also carry the admin's own Keycloak token (a stub verifier here).
+ADMIN_BEARER = {"Authorization": "Bearer " + "a" * 40}
+ADMIN = {**ADMIN_BEARER, "X-User-Token": "admin-user-token"}
 CALLER_AUTH = {"signup": SIGNUP, "monitoring": MONITORING, "admin": ADMIN}
 
 
@@ -196,7 +198,8 @@ def broker():
     fake = fake_mailcow.FakeMailcow()
     mc = mailcow.MailcowClient(settings.mailcow_api_url, settings.mailcow_api_key, transport=fake.transport())
     db = store.Store(":memory:")
-    app = main.create_app(settings, mailcow=mc, store=db)
+    from conftest import StubAdminTokens
+    app = main.create_app(settings, mailcow=mc, store=db, admin_user_tokens=StubAdminTokens())
     return app, TestClient(app), db
 
 
@@ -329,6 +332,8 @@ def test_authentication_matches_the_security_declarations(spec, caps, broker):
             r = _call(client, method, path, headers)
             if op_id in caps["callers"][name]["operations"]:
                 assert r.status_code not in (401, 403), f"{name} should reach {op_id}: {r.status_code}"
+                if name == "admin":  # PR 15: the admin token alone is not enough (ADR 0020)
+                    assert _call(client, method, path, ADMIN_BEARER).status_code == 401, op_id
             else:
                 assert r.status_code == 403 and r.json()["kind"] == "forbidden", f"{name} must not reach {op_id}"
 

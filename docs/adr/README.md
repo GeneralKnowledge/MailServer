@@ -25,7 +25,7 @@ separately on purpose.
 | [0007](0007-no-shared-databases.md) | No shared databases | Accepted | Yes so far | No |
 | [0008](0008-no-changes-inside-mailcow.md) | No changes inside the mailcow tree | Accepted | Yes | No |
 | [0009](0009-integrations-behind-adapters.md) | Every integration behind its own adapter | Accepted | Partly (adapter boundary and mailcow adapter, PR 9) | No |
-| [0010](0010-no-public-lifecycle-admin-separate.md) | No public lifecycle; admin in its own container (E6) | Accepted | Partly (no lifecycle exposed; admin split is PR 15) | No |
+| [0010](0010-no-public-lifecycle-admin-separate.md) | No public lifecycle; admin in its own container (E6) | Accepted (path `/console`, see 0020) | Yes in code (no lifecycle exposed; admin console split out in PR 15) | No |
 | [0011](0011-rejected-projects.md) | Rejected projects and alternatives | Accepted | n/a | n/a |
 | [0012](0012-one-sieve-rule-owner.md) | Exactly one tool writes each user's Sieve rules | Accepted | Yes (nothing of ours writes Sieve) | No |
 | [0013](0013-alias-domain.md) | Alias domain (E3) | Closed as non-blocking (aliases parked) | No | No |
@@ -35,3 +35,4 @@ separately on purpose.
 | [0017](0017-minimum-complete-platform.md) | Minimum complete platform; replaceable boundaries without replacement machinery; the removal test | Accepted | n/a (scope rule) | n/a |
 | [0018](0018-initial-mail-domain.md) | Initial mail domain is a subdomain (`mail.avedeus.ovh`); root domain untouched | Accepted; host name open point | No | No |
 | [0019](0019-identity-network-placement.md) | Keycloak on `avedeus-edge` (`.12`); its own Postgres on an internal network; experience network split deferred to PR 14/15 | Accepted | Yes in code (PR 11) | No |
+| [0020](0020-admin-console-and-invitations.md) | Admin console at `/console` with Keycloak admin group + one-time code; invitations stay in the sign-up app behind an internal API; control plane verifies the admin's token | Accepted (owner's choice) | Yes in code (PR 15) | No |
