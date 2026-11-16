@@ -120,6 +120,15 @@ fi
 n=$($ID exec -T postgres pg_dump -U keycloak -d keycloak -Fc | $ID exec -T postgres pg_restore --list | grep -c ' TABLE DATA ' || true)
 [ "${n:-0}" -gt 50 ] && pass "pg_dump archive lists $n tables" || fail "pg_dump archive lists ${n:-0} tables"
 
+# 8. Sign-in page wears the Avedeus theme (PR 18) and its stylesheet is served.
+page=$(curl -sS "$KC/realms/avedeus/protocol/openid-connect/auth?client_id=avedeus-portal&response_type=code&scope=openid&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256&redirect_uri=https://$MAIL_HOSTNAME/account/callback" || true)
+css=$(printf '%s' "$page" | grep -o '/auth/resources/[^"]*/login/avedeus/css/avedeus.css' | head -1 || true)
+if [ -n "$css" ] && curl -fsS "${KC%/auth}$css" 2>/dev/null | grep -q -- '--keycloak-card-top-color'; then
+  pass "sign-in page uses the avedeus theme"
+else
+  fail "sign-in page does not load the avedeus theme"
+fi
+
 # Memory after start-up (gate condition 2 needs this measured on the real box).
 docker stats --no-stream --format '{{.Name}} {{.MemUsage}} {{.CPUPerc}}' \
   "$($ID ps -q keycloak)" "$($ID ps -q postgres)" | sed 's/^/memory: /'

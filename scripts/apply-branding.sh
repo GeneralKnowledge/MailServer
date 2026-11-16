@@ -46,6 +46,12 @@ open(os.path.join(static, "brand.css"), "w").write(css)
 shutil.copy(os.path.join(root, "branding/logo.svg"), os.path.join(static, "logo.svg"))
 shutil.copy(os.path.join(root, "branding/logo.svg"), os.path.join(static, "favicon.svg"))
 print("invite website: brand.css and logos updated")
+# The portal, the admin console and Keycloak's login theme (PR 18) use the same colours and logo.
+for d in ("portal/app/static", "admin/app/static", "infrastructure/identity/themes/avedeus/login/resources/css"):
+    open(os.path.join(root, d, "brand.css"), "w").write(css)
+for d in ("portal/app/static", "admin/app/static", "infrastructure/identity/themes/avedeus/login/resources/img"):
+    shutil.copy(os.path.join(root, "branding/logo.svg"), os.path.join(root, d, "logo.svg"))
+print("portal, admin console, Keycloak login theme: brand.css and logos updated")
 
 import json
 # Dark background palette. Every hue is dark: SOGo paints panes with several

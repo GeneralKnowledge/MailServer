@@ -1,4 +1,4 @@
-# Identity: Keycloak, its database, and one identity (PR 11, PR 12)
+# Identity: Keycloak, its database, and one identity (PR 11, PR 12, PR 18)
 
 > **Status: PR 11 and PR 12 are implemented in code, not proven on server, not deployed.**
 > Keycloak is not started on the server until the
@@ -220,7 +220,7 @@ All of these are mailcow's own features, configured, not built (ADR 0016):
 3. In `broker.env`: `IDENTITY_PROVIDER=keycloak`, `KEYCLOAK_CLIENT_SECRET`
    (= `CONTROL_PLANE_OIDC_SECRET`), `MAILBOX_TEMPLATE`. Restart the broker;
    `/v1/health` now lists `keycloak`, and health-check alerts on it.
-4. "Sign in with Avedeus" as mailcow's only login button is PR 18.
+4. Make the single sign-on button mailcow's only login: see "One look" below.
 
 ### Existing mailboxes (migration runbook)
 
@@ -256,6 +256,51 @@ against a fake in the unit tests **and against a real Keycloak 26.8.2** in
 CI's Identity stack job (`broker/tests/test_keycloak_live.py`): token,
 health, create with group and attribute, duplicate refused as taken, short
 password refused as password, delete.
+
+## One look (PR 18)
+
+> **Implemented in code; not proven on server, not deployed.** Seen in local
+> testing against Keycloak 26.8.2 (light, dark and phone widths); the smoke
+> test checks the sign-in page loads the theme.
+
+Every sign-in goes to the same page: Keycloak's, in Avedeus colours.
+
+**Keycloak (code, in this repository).** `infrastructure/identity/themes/avedeus/login/`
+is a login theme with `parent=keycloak.v2`: no page templates and no scripts,
+only stylesheets on top of Keycloak's own (PatternFly colour variables, the
+plum background, a gold rule above the card and the logo above the realm
+name). `brand.css` and `logo.svg` are written by `apply-branding.sh`, the
+same files the portal and admin console use. The realm sets
+`loginTheme: avedeus` and the display name "Avedeus Mail"; dark mode follows
+the visitor's system setting. The same theme covers the "Forgot password",
+update-password and one-time-code pages. The account console keeps Keycloak's
+default look (not themed; a theme there means replacing a React app).
+
+The realm is only imported on first start. On a Keycloak that already exists,
+set **Realm settings → Themes → Login theme → avedeus** once in the admin
+console.
+
+**mailcow (server steps, after the gate; mailcow's own options, ADR 0016):**
+
+1. **System → Configuration → Options → Customize**: enable **"Disable
+   mailcow Login and show only Single Sign-On"** (`force_sso`). It applies
+   to the user login page only (`user_index.twig`); the admin login at
+   `/admin` keeps its own form, so a broken Keycloak never locks the admin out.
+2. Same page, under quick links: **"Hide Quicklink to Admin Login Page"** and
+   **"Hide Quicklink to Domainadmin Login Page"**.
+3. Check SOGo: `/SOGo` reached directly should send people back to mailcow's
+   login (and so to Keycloak), not show SOGo's own form.
+
+**Named deviations.** The button keeps mailcow's label, "Single Sign-On",
+not "Sign in with Avedeus": the label lives in mailcow's language files, and
+we change nothing inside mailcow (ADR 0008). The brand appears one click
+later, on the Keycloak page. mailcow's own UI and SOGo keep the colours
+`apply-branding.sh` already gives them; they are not restyled further.
+
+**Removal test (ADR 0017).** Set the realm's login theme back to
+`keycloak.v2` (or delete `loginTheme`), remove the theme mount and the
+`themes/` folder, and switch off `force_sso` in mailcow. Nothing else refers
+to the theme.
 
 ## Removal test (ADR 0017)
 

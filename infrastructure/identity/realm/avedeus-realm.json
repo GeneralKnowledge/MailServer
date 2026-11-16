@@ -1,6 +1,8 @@
 {
   "realm": "avedeus",
   "displayName": "Avedeus",
+  "displayNameHtml": "Avedeus Mail",
+  "loginTheme": "avedeus",
   "enabled": true,
   "sslRequired": "external",
   "registrationAllowed": false,
