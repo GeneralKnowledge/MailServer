@@ -92,7 +92,7 @@ def test_served_under_auth_behind_the_proxy():
 
 def test_nginx_proxies_auth_and_closes_admin_by_default():
     assert "location /auth/ {" in NGINX
-    for loc in ("/auth/admin/", "/auth/realms/master/"):
+    for loc in ("/auth/admin/", "/auth/admin/realms/avedeus/", "/auth/realms/master/"):
         block = NGINX.split(f"location {loc} {{", 1)[1].split("\n}", 1)[0]
         active = [line.strip() for line in block.splitlines() if not line.strip().startswith("#")]
         assert "deny all;" in active, f"{loc} must fail closed"
@@ -109,6 +109,15 @@ def test_realm_is_invite_only_and_hardened():
     assert REALM["duplicateEmailsAllowed"] is False
     assert "length(12)" in REALM["passwordPolicy"]
     assert REALM["adminEventsDetailsEnabled"] is False  # admin events must not store representations
+
+
+def test_mailcow_template_is_declared_and_admin_only():
+    # Keycloak 24+ drops undeclared attributes, so the one PR 12 sets is declared.
+    import json as _json
+    cfg = REALM["components"]["org.keycloak.userprofile.UserProfileProvider"][0]["config"]["kc.user.profile.config"][0]
+    attrs = {a["name"]: a for a in _json.loads(cfg)["attributes"]}
+    assert attrs["mailcow_template"]["permissions"] == {"view": ["admin"], "edit": ["admin"]}
+    assert {"username", "email", "firstName", "lastName"} <= set(attrs)
 
 
 def test_groups_as_code():

@@ -28,8 +28,8 @@ callers:
     enforced: true
     operations:
       - checkAddress
-      - createMailbox       # replaced by createAccount in PR 12
-      - createAccount       # planned, PR 12
+      - createMailbox       # superseded by createAccount; refused when Keycloak is on
+      - createAccount       # PR 12: identity, then mailbox
 
   portal:
     description: Signed-in user's own account at /account (PR 14).

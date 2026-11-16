@@ -9,6 +9,12 @@ Status: **adapter side implemented in PR 9** for mailcow (`broker/broker/adapter
 `broker/broker/mailcow.py`): A1–A8 and A10 hold; A9 can only be shown when a
 second integration exists. Not proven on Oracle. PR 9 built the adapter interface and
 moves the existing mailcow client (`broker/broker/mailcow.py`) behind it.
+**PR 12** adds the second adapter, Keycloak (`broker/broker/keycloak.py`):
+A1–A8 and A10 hold (fake in `broker/tests/fake_keycloak.py`; also run against
+a real Keycloak in CI). A9 holds partly: the account flow in `main.py` names
+mailcow's `keycloak` login source and the `mailcow_template` attribute, so a
+different identity provider would change those two lines as well as the
+adapter.
 
 ## An adapter (code in the control plane)
 

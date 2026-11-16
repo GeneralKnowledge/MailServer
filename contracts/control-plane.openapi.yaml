@@ -149,7 +149,9 @@ paths:
       description: |
         The broker enforces the fixed domain, username rules, reserved names,
         the quota ceiling and a daily creation cap whatever the caller sends.
-        Replaced by createAccount in PR 12, when Keycloak creates identities.
+        Superseded by createAccount (PR 12). When the identity provider is on,
+        it answers 409 `conflict`: a mailbox without its Keycloak user would be
+        an account nobody can sign in to.
 
         Idempotency-Key is optional here (it predates the convention); the
         sign-up app sends one per invitation claim. A repeat with the same key
@@ -200,8 +202,25 @@ paths:
     post:
       operationId: createAccount
       tags: [signup]
-      summary: Redeem an invitation; creates the Keycloak user, then the mailbox.
-      x-avedeus-status: planned
+      summary: Redeem an invitation; creates the identity, then the mailbox.
+      description: |
+        With IDENTITY_PROVIDER=keycloak (PR 12): checks the address is free in
+        mailcow, creates the Keycloak user (group `users`, the chosen password,
+        email verified), records the link, then creates the mailbox with
+        Keycloak as its login source and a random mailbox password nobody
+        knows. Mail clients then use mailcow app passwords (ADR 0015), which
+        `app_password_required` tells the sign-up page. If mailcow
+        definitively refuses, the new Keycloak user is removed again; after a
+        lost reply the identity is kept and a retry with the same key
+        continues. An existing Keycloak user is never adopted.
+
+        Without an identity provider it creates the mailbox with mailcow's
+        own login, exactly like createMailbox.
+
+        The same rules, quota ceiling and daily cap as createMailbox apply.
+        `invitation` is an opaque reference recorded in the audit log, never
+        the invitation's secret token.
+      x-avedeus-status: implemented
       x-avedeus-pr: 12
       x-avedeus-audit: account.create
       parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
@@ -211,15 +230,38 @@ paths:
           application/json:
             schema:
               type: object
-              required: [local_part, password, invitation]
+              required: [local_part, password, quota_mb, invitation]
+              additionalProperties: false
               properties:
                 local_part: {type: string, maxLength: 64}
                 password: {type: string, minLength: 8, maxLength: 128, writeOnly: true}
-                name: {type: string, maxLength: 100}
-                invitation: {type: string, description: Opaque invitation reference; never the raw token.}
+                name: {type: string, maxLength: 100, default: ""}
+                quota_mb: {type: integer}
+                invitation:
+                  type: string
+                  minLength: 1
+                  maxLength: 64
+                  pattern: "^[A-Za-z0-9_-]+$"
+                  description: Opaque invitation reference; never the raw token.
       responses:
-        "201": {description: Account created.}
-        default: {$ref: "#/components/responses/Error"}
+        "201":
+          description: Account created (or confirmed to exist after mailcow's reply was lost).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, address, app_password_required]
+                additionalProperties: false
+                properties:
+                  ok: {const: true}
+                  address: {type: string, format: email}
+                  app_password_required: {type: boolean}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+        "422": {$ref: "#/components/responses/Error"}
+        "429": {$ref: "#/components/responses/Error"}
+        "502": {$ref: "#/components/responses/Error"}
     get:
       operationId: listAccounts
       tags: [lifecycle]
@@ -470,7 +512,7 @@ components:
       type: string
       enum:
         - invalid       # 422 request breaks a rule
-        - password      # 422 mailcow rejected the password
+        - password      # 422 mailcow or Keycloak rejected the password (policy)
         - taken         # 409 address already in use
         - limit         # 429 a cap was reached
         - unauthorized  # 401 missing or wrong credential

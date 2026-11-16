@@ -8,6 +8,6 @@ outside broker/. CI (contracts/tests) fails if the two ever differ.
 PUBLIC = frozenset({"healthz"})
 
 CAPABILITIES: dict[str, frozenset[str]] = {
-    "signup": frozenset({"checkAddress", "createMailbox"}),
+    "signup": frozenset({"checkAddress", "createMailbox", "createAccount"}),
     "monitoring": frozenset({"upstreamCheck", "health"}),
 }

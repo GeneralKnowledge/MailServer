@@ -196,12 +196,12 @@ def create_app(settings: Settings | None = None, *, broker: BrokerClient | None 
 
         address = f"{name}@{s.mail_domain}"
         try:
-            # The broker checks the address is free, creates the mailbox, and
-            # confirms it itself if mailcow's reply is lost.
+            # The control plane checks the address is free, creates the account
+            # (identity, then mailbox) and confirms it itself if a reply is lost.
             # One key per claim: a repeat of this exact attempt can't create twice.
             key = "claim-" + hashlib.sha256(cid.encode()).hexdigest()[:32]
-            mc.create_mailbox(local_part=name, password=password, quota_mb=inv.quota_mb, name=display_name,
-                              idempotency_key=key)
+            _, app_pw = mc.create_account(local_part=name, password=password, quota_mb=inv.quota_mb,
+                                          name=display_name, invitation=f"inv-{inv.id}", idempotency_key=key)
         except ProvisioningError as e:
             if e.kind == "unavailable":
                 # Our call to the broker failed; the mailbox may still have been created.
@@ -223,9 +223,10 @@ def create_app(settings: Settings | None = None, *, broker: BrokerClient | None 
                         message="Something went wrong on our side. Your invitation has not been used; "
                                 "please try again later.")
 
-        return finish(request, inv.id, cid, address, client)
+        return finish(request, inv.id, cid, address, client, app_password_required=app_pw)
 
-    def finish(request: Request, inv_id: int, cid: str, address: str, client: str, detail: str = ""):
+    def finish(request: Request, inv_id: int, cid: str, address: str, client: str, detail: str = "",
+               app_password_required: bool | None = None):
         # The mailbox exists at this point, so the user always sees success.
         if invites.redeem(inv_id, cid, address):
             db.log("registered", invitation_id=inv_id, address=address, detail=detail, ip=client)
@@ -234,7 +235,8 @@ def create_app(settings: Settings | None = None, *, broker: BrokerClient | None 
                    detail="mailbox created, but the invitation was revoked or claimed again meanwhile; "
                           "check this mailbox in mailcow")
             log.warning("mailbox %s created without redeeming invitation #%s", address, inv_id)
-        return page(request, "done.html", address=address)
+        # None: the reply was lost, so we don't know; the page then explains app passwords.
+        return page(request, "done.html", address=address, app_password_required=app_password_required)
 
     # ---- admin -------------------------------------------------------------
 

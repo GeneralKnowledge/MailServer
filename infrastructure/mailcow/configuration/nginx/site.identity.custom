@@ -50,6 +50,26 @@ location /auth/admin/ {
     proxy_busy_buffers_size 256k;
 }
 
+# PR 12: mailcow's own identity-provider sync reads users through the admin
+# REST API at the public URL, so this one realm's API path may be opened to
+# mailcow's own network (its php-fpm container), and nothing else. Closed
+# until mailcow is connected. Before uncommenting, confirm on the server that
+# nginx sees real client addresses (not the Docker gateway) for outside
+# traffic; otherwise this line would open the path to everyone (still
+# token-protected, but more exposed than intended). See docs/identity.md.
+location /auth/admin/realms/avedeus/ {
+    # allow 172.22.1.0/24;   # mailcow's IPV4_NETWORK; check mailcow.conf
+    deny all;
+    resolver 127.0.0.11 valid=30s ipv6=off;
+    set $keycloak_upstream http://keycloak:8080;
+    proxy_pass $keycloak_upstream;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Port 443;
+}
+
 location /auth/realms/master/ {
     # allow 203.0.113.7;
     deny all;

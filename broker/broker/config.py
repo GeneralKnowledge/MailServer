@@ -43,6 +43,14 @@ class Settings:
     min_username_len: int
     max_creates_per_day: int
     reserved: frozenset[str]
+    # PR 12: "none" (mailcow logins, as before) or "keycloak" (one identity).
+    identity_provider: str = "none"
+    keycloak_url: str = "http://keycloak:8080/auth"
+    keycloak_realm: str = "avedeus"
+    keycloak_client_id: str = "avedeus-control-plane"
+    keycloak_client_secret: str = ""
+    keycloak_group: str = "users"
+    mailbox_template: str = ""   # value of the mailcow_template user attribute, if set
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -78,6 +86,13 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
     if len({c.token for c in callers}) != len(callers):
         raise RuntimeError("each caller needs its own token (two callers share one)")
 
+    idp = (src.get("IDENTITY_PROVIDER", "").strip().lower() or "none")
+    if idp not in ("none", "keycloak"):
+        raise RuntimeError("IDENTITY_PROVIDER must be none or keycloak")
+    kc_secret = src.get("KEYCLOAK_CLIENT_SECRET", "").strip()
+    if idp == "keycloak" and len(kc_secret) < 32:
+        raise RuntimeError("IDENTITY_PROVIDER=keycloak needs KEYCLOAK_CLIENT_SECRET (at least 32 characters)")
+
     extra = {x.strip().lower() for x in src.get("EXTRA_RESERVED_USERNAMES", "").split(",") if x.strip()}
     return Settings(
         mailcow_api_url=req("MAILCOW_API_URL").rstrip("/"),
@@ -91,4 +106,11 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         min_username_len=num("MIN_USERNAME_LEN", 3),
         max_creates_per_day=num("MAX_CREATES_PER_DAY", 20),
         reserved=DEFAULT_RESERVED | extra,
+        identity_provider=idp,
+        keycloak_url=(src.get("KEYCLOAK_URL", "").strip() or "http://keycloak:8080/auth").rstrip("/"),
+        keycloak_realm=src.get("KEYCLOAK_REALM", "").strip() or "avedeus",
+        keycloak_client_id=src.get("KEYCLOAK_CLIENT_ID", "").strip() or "avedeus-control-plane",
+        keycloak_client_secret=kc_secret,
+        keycloak_group=src.get("KEYCLOAK_GROUP", "").strip() or "users",
+        mailbox_template=src.get("MAILBOX_TEMPLATE", "").strip(),
     )

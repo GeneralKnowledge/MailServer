@@ -56,6 +56,21 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" 
 [ "$code" = 403 ] && pass "control-plane client cannot read client configuration (403)" \
   || fail "control-plane client reading clients returned $code, expected 403"
 
+# 2b. The control plane can create an invited user the way PR 12 does
+#     (group, password, the admin-only mailcow_template attribute), then remove it.
+code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+  -d '{"username":"smoke-user","email":"smoke-user@'"$MAIL_HOSTNAME"'","emailVerified":true,"enabled":true,"groups":["/users"],"attributes":{"mailcow_template":["smoke"]},"credentials":[{"type":"password","value":"Smoke-Test-Password-1","temporary":false}]}' \
+  "$KC/admin/realms/avedeus/users")
+uid=$(curl -fsS -H "Authorization: Bearer $token" "$KC/admin/realms/avedeus/users?username=smoke-user&exact=true" | jq -r '.[0].id // empty')
+tmpl=$(curl -fsS -H "Authorization: Bearer $token" "$KC/admin/realms/avedeus/users/$uid" | jq -r '.attributes.mailcow_template[0] // empty')
+grp=$(curl -fsS -H "Authorization: Bearer $token" "$KC/admin/realms/avedeus/users/$uid/groups" | jq -r '[.[].name]|join(",")')
+if [ "$code" = 201 ] && [ "$tmpl" = smoke ] && [ "$grp" = users ]; then
+  pass "control plane creates a user with group and mailcow_template"
+else
+  fail "user creation: HTTP $code, template '$tmpl', groups '$grp'"
+fi
+[ -n "$uid" ] && curl -s -o /dev/null -X DELETE -H "Authorization: Bearer $token" "$KC/admin/realms/avedeus/users/$uid"
+
 # 3. mailcow's client exists with the substituted redirect, and reading users
 #    is all its service account may do.
 mtoken=$(curl -fsS -d grant_type=client_credentials -d client_id=mailcow \

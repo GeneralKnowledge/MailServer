@@ -16,7 +16,7 @@ against all three.
 
 | Caller | Credential (broker.env) | Operations |
 |---|---|---|
-| `signup` (the registration app) | `SIGNUP_TOKEN` + `SIGNUP_CLIENTS` | `POST /v1/addresses/check`, `POST /v1/mailboxes` |
+| `signup` (the registration app) | `SIGNUP_TOKEN` + `SIGNUP_CLIENTS` | `POST /v1/addresses/check`, `POST /v1/accounts` (PR 12), `POST /v1/mailboxes` (refused while Keycloak is on) |
 | `monitoring` (`health-check.sh` via `broker.probe`) | `MONITORING_TOKEN` + `MONITORING_CLIENTS=127.0.0.1` | `GET /v1/health`, `GET /v1/upstream` |
 | anyone | none | `GET /healthz` (liveness) |
 
@@ -36,7 +36,15 @@ Whatever the caller sends, the control plane enforces its own rules:
 Errors are always `{"ok": false, "kind": …, "detail": …}` and never echo the
 request. Kinds: `invalid`/`password` (422), `taken`/`conflict` (409), `limit`
 (429), `unauthorized` (401), `forbidden` (403), `not_found` (404), and `auth`,
-`unavailable` or `rejected` (502, from mailcow).
+`unavailable` or `rejected` (502, from mailcow or Keycloak).
+
+## One identity (PR 12)
+
+With `IDENTITY_PROVIDER=keycloak`, `POST /v1/accounts` creates the Keycloak
+user first (via `broker/keycloak.py`, the only Keycloak credential on the
+box), records the link, then creates the mailbox with Keycloak as its login
+source. Default `none` keeps mailcow's own login. Details, failure handling
+and the mailcow settings: [docs/identity.md](../docs/identity.md#one-identity-pr-12).
 
 ## Audit log and idempotency
 

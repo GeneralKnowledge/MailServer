@@ -120,7 +120,11 @@ class MailcowClient:
 
     # ---- write -----------------------------------------------------------
 
-    def add_mailbox(self, *, local_part: str, domain: str, password: str, quota_mb: int, name: str = "") -> None:
+    def add_mailbox(self, *, local_part: str, domain: str, password: str, quota_mb: int, name: str = "",
+                    authsource: str = "mailcow") -> None:
+        """authsource "keycloak" (PR 12): mailcow's identity-provider sync owns the
+        login; `password` is then a random value nobody knows, and mail clients
+        use app passwords (ADR 0015)."""
         payload = {
             "local_part": local_part,
             "domain": domain,
@@ -132,7 +136,7 @@ class MailcowClient:
             "force_pw_update": "0",
             "tls_enforce_in": "1",
             "tls_enforce_out": "1",
-            "authsource": "mailcow",
+            "authsource": authsource,
         }
         data = self._request("POST", "/api/v1/add/mailbox", json=payload)
         results = data if isinstance(data, list) else [data]
