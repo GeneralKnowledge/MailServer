@@ -65,6 +65,14 @@ class Settings:
     # PR 16 (ADR 0021, roadmap D6): days between scheduling a deletion and the
     # deletion job removing the account (and only after a newer backup).
     deletion_grace_days: int = 30
+    # PR 26: mail people about a sign-in from a new network (broker.notify).
+    notify_signins: bool = False
+    notify_smtp_host: str = ""        # the mail host's name; the TLS certificate must match it
+    notify_smtp_connect: str = ""     # optional address to connect to instead (avedeus-edge gateway)
+    notify_smtp_port: int = 587
+    notify_smtp_user: str = ""        # a send-only mailbox, e.g. noreply@<mail domain>
+    notify_smtp_password: str = ""
+    notify_account_url: str = ""      # the portal, named in the mail (https://<mail host>/account/)
 
 
 def load_settings(env: dict[str, str] | None = None) -> Settings:
@@ -120,6 +128,18 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
     if not 1 <= grace <= 365:
         raise RuntimeError("DELETION_GRACE_DAYS must be 1-365")
 
+    def flag(name: str, default: str) -> bool:
+        return src.get(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+    notify = flag("NOTIFY_SIGNINS", "false")
+    if notify:
+        if idp != "keycloak":
+            raise RuntimeError("NOTIFY_SIGNINS needs IDENTITY_PROVIDER=keycloak (it reads Keycloak's sign-in events)")
+        for name in ("NOTIFY_SMTP_HOST", "NOTIFY_SMTP_USER", "NOTIFY_SMTP_PASSWORD", "NOTIFY_ACCOUNT_URL"):
+            req(name)
+        if not src.get("NOTIFY_ACCOUNT_URL", "").strip().startswith("https://"):
+            raise RuntimeError("NOTIFY_ACCOUNT_URL must be the portal's https:// address")
+
     extra = {x.strip().lower() for x in src.get("EXTRA_RESERVED_USERNAMES", "").split(",") if x.strip()}
     return Settings(
         mailcow_api_url=req("MAILCOW_API_URL").rstrip("/"),
@@ -148,4 +168,11 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         admin_group=src.get("ADMIN_GROUP", "").strip() or "admins",
         admin_require_otp=src.get("ADMIN_REQUIRE_OTP", "true").strip().lower() in {"1", "true", "yes", "on"},
         deletion_grace_days=grace,
+        notify_signins=notify,
+        notify_smtp_host=src.get("NOTIFY_SMTP_HOST", "").strip(),
+        notify_smtp_connect=src.get("NOTIFY_SMTP_CONNECT", "").strip(),
+        notify_smtp_port=num("NOTIFY_SMTP_PORT", 587),
+        notify_smtp_user=src.get("NOTIFY_SMTP_USER", "").strip(),
+        notify_smtp_password=src.get("NOTIFY_SMTP_PASSWORD", "").strip(),
+        notify_account_url=src.get("NOTIFY_ACCOUNT_URL", "").strip(),
     )

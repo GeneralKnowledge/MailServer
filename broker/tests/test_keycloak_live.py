@@ -127,6 +127,11 @@ def test_live_sign_up_then_sign_in_through_the_portal():
         assert portal.get("/account/callback", params={"code": q["code"], "state": q["state"]}).status_code == 303
         page = portal.get("/account/")
         assert page.status_code == 200 and f"{name}@{host}" in page.text and "100 MB of 1024 MB used" in page.text
+        # PR 26: that browser sign-in is a LOGIN event the control plane can read.
+        import time
+        uid = kc.find_user(name)
+        mine = [e for e in kc.login_events(int((time.time() - 600) * 1000)) if e["user_id"] == uid]
+        assert mine and mine[-1]["client_id"] == "avedeus-portal" and mine[-1]["ip"], mine
     finally:
         uid = kc.find_user(name)
         if uid:

@@ -94,6 +94,7 @@ def run(mc: MailcowClient, kc: KeycloakClient | None, store: Store, *, now: floa
             continue
         if uid:
             store.link_delete(addr, kc.name)
+            store.places_forget(uid)   # PR 26: the networks they signed in from
         store.deletion_remove(addr)
         counts["deleted"] += 1
         event("ok", adapter="keycloak" if uid else mc.name)

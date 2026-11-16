@@ -200,6 +200,40 @@ class KeycloakClient:
             self._update_user(user_id, {"requiredActions": [*actions, "UPDATE_PASSWORD"]})
         self.logout(user_id)
 
+    # ---- sign-in notifications (PR 26, read only) -------------------------
+
+    def login_events(self, since_ms: int, page: int = 200, limit: int = 5000) -> list[dict]:
+        """Successful browser sign-ins (Keycloak LOGIN events) newer than since_ms,
+        oldest first: {"time_ms", "user_id", "ip", "client_id"}. Needs the
+        read-only realm-management role view-events. Keycloak keeps events for
+        the realm's eventsExpiration (30 days)."""
+        day = time.strftime("%Y-%m-%d", time.gmtime(max(since_ms, 0) / 1000))
+        found: list[dict] = []
+        first = 0
+        while first < limit:
+            r = self._admin("GET", "/events", params={"type": "LOGIN", "dateFrom": day, "first": first, "max": page})
+            if r.status_code != 200:
+                raise KeycloakError("unavailable", f"events HTTP {r.status_code}")
+            try:
+                batch = r.json()
+            except ValueError as e:
+                raise KeycloakError("unavailable", "events: non-JSON response") from e
+            if not isinstance(batch, list):
+                raise KeycloakError("unavailable", "events: unexpected response")
+            older = False
+            for e in batch:   # Keycloak returns newest first
+                t = int(e.get("time") or 0)
+                if t <= since_ms:
+                    older = True
+                    continue
+                if e.get("type") == "LOGIN" and e.get("userId"):
+                    found.append({"time_ms": t, "user_id": str(e["userId"]), "ip": str(e.get("ipAddress") or ""),
+                                  "client_id": str(e.get("clientId") or "")})
+            if older or len(batch) < page:
+                break
+            first += page
+        return sorted(found, key=lambda e: e["time_ms"])
+
     def delete_user(self, user_id: str) -> None:
         """Undo a creation in this same flow (mailbox creation was definitively refused),
         or remove the identity of an account whose deletion is due (PR 16)."""

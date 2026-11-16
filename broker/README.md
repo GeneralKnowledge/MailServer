@@ -89,6 +89,18 @@ mail still arrives; app passwords are refused); `stop_receiving` sets
 was scheduled has completed; a mailbox reactivated in mailcow meanwhile is
 not deleted, and the job alerts.
 
+## Sign-in notifications (PR 26)
+
+`scripts/notify-signins.sh` (cron, every 10 minutes, `python -m broker.notify`)
+reads Keycloak's LOGIN events with the read-only role `view-events` and
+mails a person when their account is signed in to from a network (IPv4 /24,
+IPv6 /48) it hasn't used in the last 180 days. It sends through mailcow's
+port 587 as a send-only mailbox, checking the certificate against
+`NOTIFY_SMTP_HOST`. The first run and a person's first sign-in only learn;
+a failed send stops the run and the next one retries. Off unless
+`NOTIFY_SIGNINS=true`. Mail-client logins (app passwords) are not Keycloak
+sign-ins and are not covered; quota warnings are mailcow's own.
+
 ## Running
 
 It is the `broker` service in

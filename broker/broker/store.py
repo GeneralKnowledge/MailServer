@@ -1,6 +1,7 @@
 """The control plane's own database (ADR 0007): the audit log, idempotency records,
 identity links (mailbox address <-> Keycloak user id, ADR 0004; PR 12) and
-scheduled account deletions (PR 16, ADR 0021).
+scheduled account deletions (PR 16, ADR 0021) and the networks each person
+has signed in from (PR 26).
 
 SQLite in the broker's own volume. The audit table is append-only: triggers
 refuse UPDATE and DELETE, so an event can't be edited or removed through
@@ -66,7 +67,20 @@ CREATE TABLE IF NOT EXISTS deletions (
     due_at REAL NOT NULL,
     prior_state TEXT NOT NULL
 );
+
+-- PR 26: networks (IPv4 /24, IPv6 /48) each Keycloak user has signed in
+-- from, so the notification job mails only about a new one. Rows older than
+-- PLACE_KEEP_SECONDS are forgotten.
+CREATE TABLE IF NOT EXISTS signin_places (
+    subject TEXT NOT NULL,
+    place TEXT NOT NULL,
+    first_ts REAL NOT NULL,
+    last_ts REAL NOT NULL,
+    PRIMARY KEY (subject, place)
+);
 """
+
+PLACE_KEEP_SECONDS = 180 * 86400
 
 IDEMPOTENCY_KEEP_SECONDS = 7 * 86400
 
@@ -257,3 +271,24 @@ class Store:
             rows = self.db.execute("SELECT address, scheduled_at, due_at, prior_state FROM deletions "
                                    "ORDER BY due_at").fetchall()
         return [dict(zip(("address", "scheduled_at", "due_at", "prior_state"), r)) for r in rows]
+
+    # ---- sign-in places (PR 26) ------------------------------------------------
+
+    def places(self, subject: str) -> set[str]:
+        with self.lock:
+            rows = self.db.execute("SELECT place FROM signin_places WHERE subject=?", (subject,)).fetchall()
+        return {r[0] for r in rows}
+
+    def place_seen(self, subject: str, place: str, ts: float) -> None:
+        with self.lock:
+            self.db.execute("INSERT INTO signin_places (subject, place, first_ts, last_ts) VALUES (?,?,?,?) "
+                            "ON CONFLICT(subject, place) DO UPDATE SET last_ts=max(last_ts, excluded.last_ts)",
+                            (subject, place, ts, ts))
+
+    def places_forget(self, subject: str) -> None:
+        with self.lock:
+            self.db.execute("DELETE FROM signin_places WHERE subject=?", (subject,))
+
+    def prune_places(self) -> None:
+        with self.lock:
+            self.db.execute("DELETE FROM signin_places WHERE last_ts < ?", (self.clock() - PLACE_KEEP_SECONDS,))

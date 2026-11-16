@@ -305,6 +305,8 @@ Avedeus logo and plum colours on the login page and in webmail, light and dark.
    echo '*/15 * * * * root /opt/MailServer/scripts/health-check.sh >/var/log/mail-health.log 2>&1' | sudo tee /etc/cron.d/mail-health
    echo '10 4 * * * root /opt/MailServer/scripts/reconcile.sh >>/var/log/mail-reconcile.log 2>&1' | sudo tee /etc/cron.d/mail-reconcile
    echo '10 5 * * * root /opt/MailServer/scripts/purge-deleted.sh >>/var/log/mail-purge.log 2>&1' | sudo tee /etc/cron.d/mail-purge
+   # Only does something once NOTIFY_SIGNINS=true (PR 26, needs Keycloak):
+   echo '*/10 * * * * root /opt/MailServer/scripts/notify-signins.sh >>/var/log/mail-notify.log 2>&1' | sudo tee /etc/cron.d/mail-notify
    sudo /opt/MailServer/scripts/backup.sh
    ```
 4. **Alerts.** Install the [ntfy](https://ntfy.sh) app on your phone and

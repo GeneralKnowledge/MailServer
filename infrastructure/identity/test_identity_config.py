@@ -168,6 +168,8 @@ def test_only_the_control_plane_may_change_users():
               "manage-identity-providers", "manage-events"}
     assert not roles["mailcow"] & writes, "mailcow's client reads users for its sync, nothing more"
     assert roles["avedeus-control-plane"] & writes == {"manage-users"}
+    # PR 26: it may read sign-in events (read only) for new-sign-in mails; mailcow may not.
+    assert "view-events" in roles["avedeus-control-plane"] and "view-events" not in roles["mailcow"]
     # Only service-account users are defined in code; people come from invitations.
     assert all(u["username"].startswith("service-account-") for u in REALM["users"])
 

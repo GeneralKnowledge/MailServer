@@ -95,7 +95,7 @@ PR of its own.
 
 | PR | Title | Delivers | Depends on | Server |
 |---|---|---|---|---|
-| 26 | Notifications | Retained. Background jobs; new-sign-in notifications (mailcow has none), quota warnings; email and push | 9 | Yes |
+| 26 | Notifications | Retained. New-sign-in mails: a 10-minute job reads Keycloak's LOGIN events (read-only `view-events`) and mails the person about a new network through mailcow's port 587. Quota warnings are mailcow's own (Quota notifications), configured, not built. **Deviations:** email only, no push (no push channel exists); mail-app logins not covered (app passwords bypass Keycloak; listed on mailcow's user page). **Implemented in code** (event read checked against a real Keycloak in CI); not proven on server, not deployed | 9 | Yes |
 
 PR 23–25 (rule engine, visual editor, forwarding and vacation) were **dropped**
 on 2026-11-15: SOGo owns user-facing rules ([ADR 0014](adr/0014-mail-rule-owner.md)).
@@ -246,6 +246,10 @@ Stay open until tested on the Oracle box.
   published ports through that gateway. If that holds on the server, audit
   fix 6 ("no route from the sign-up container to Postfix") needs a host
   firewall rule allowing only Keycloak to 587.
+- PR 26: a sign-in mail from the broker reaching a mailbox through
+  `172.30.240.1:587` with the certificate checked against the mail host's
+  name; if a host firewall is added for audit fix 6, allow the broker
+  (`172.30.240.11`) as well as Keycloak. mailcow's quota notification at 80 %.
 - PR 18: mailcow's "show only Single Sign-On" option on the real login page,
   `/admin` still reachable with its own form, and `/SOGo` not offering a
   separate password form.
