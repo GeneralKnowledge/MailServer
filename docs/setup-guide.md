@@ -309,6 +309,9 @@ Avedeus logo and plum colours on the login page and in webmail, light and dark.
    echo '10 4 * * * root /opt/MailServer/scripts/reconcile.sh >>/var/log/mail-reconcile.log 2>&1' | sudo tee /etc/cron.d/mail-reconcile
    echo '10 5 * * * root /opt/MailServer/scripts/purge-deleted.sh >>/var/log/mail-purge.log 2>&1' | sudo tee /etc/cron.d/mail-purge
    # Only does something once NOTIFY_SIGNINS=true (PR 26, needs Keycloak):
+   # DNS, blocklists and the delivery probe (PR 30); settings first:
+   printf 'MAIL_DOMAIN=mail.avedeus.ovh\nPUBLIC_IPV4=<server IPv4>\n' | sudo tee /etc/mailserver/delivery.env
+   echo '20 6 * * * root /opt/MailServer/scripts/delivery-check.sh >>/var/log/mail-delivery.log 2>&1' | sudo tee /etc/cron.d/mail-delivery
    echo '0 6 1 * * root /opt/MailServer/scripts/restore-drill.sh --remote >>/var/log/mail-drill.log 2>&1' | sudo tee /etc/cron.d/mail-drill
    echo '*/10 * * * * root /opt/MailServer/scripts/notify-signins.sh >>/var/log/mail-notify.log 2>&1' | sudo tee /etc/cron.d/mail-notify
    sudo /opt/MailServer/scripts/backup.sh

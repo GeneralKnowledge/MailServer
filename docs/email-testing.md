@@ -1,5 +1,10 @@
 # Email testing checklist (M2)
 
+> Daily, `scripts/delivery-check.sh` (PR 30) repeats the parts a script can
+> see: DNS, blocklists, and a probe to an outside mailbox that passes when the
+> receiving server accepts it. Inbox versus spam, and how a message looks,
+> stay manual checks from this list.
+
 Nothing counts as working until it has been tested for real and recorded here.
 
 | Test | How | Result / date |
