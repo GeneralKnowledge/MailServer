@@ -1,0 +1,83 @@
+---
+# Every setting of the baseline. Set per host or group in the inventory
+# (see inventory.example.yml); the defaults suit an internet-facing Ubuntu
+# host that runs only SSH. docs/server-security-standard.md explains each one.
+
+# --- SSH (standard S2) -------------------------------------------------------
+# The account Ansible signs in as. The run stops if it has no authorized_keys,
+# because password login is about to be turned off.
+hardening_admin_user: "{{ ansible_user | default(lookup('env', 'USER')) }}"
+# Only these accounts may sign in over SSH. Empty: any account with a key.
+hardening_ssh_allow_users: []
+# Where SSH is reachable from:
+#   - hardening_ssh_tailscale_only: true  -> only over the tailnet (tailscale0);
+#     needs hardening_tailscale: true and a running Tailscale. Recommended for
+#     every host that does not need public SSH.
+#   - hardening_ssh_allow_from: [CIDRs]   -> only from these addresses.
+#   - neither                             -> from anywhere, rate-limited (ufw limit).
+hardening_ssh_tailscale_only: false
+hardening_ssh_allow_from: []
+
+# --- Firewall (standard S3) --------------------------------------------------
+# Ports of services running directly on the host (not in Docker) that the
+# internet may reach. SSH is handled above; do not list 22 here.
+hardening_public_tcp_ports: []
+hardening_public_udp_ports: []
+# Docker publishes ports by rewriting packets before ufw sees them, so a
+# `-p 8080:80` container is public whatever ufw says. With the guard on, a
+# published port is reachable from the external interfaces only if it is in
+# the lists below; everything else is dropped (tailnet and localhost unaffected).
+hardening_docker_guard: true
+hardening_docker_public_tcp_ports: []
+hardening_docker_public_udp_ports: []
+# Interfaces that face the internet. The guard filters Docker traffic arriving
+# on these only.
+hardening_external_interfaces:
+  - "{{ ansible_facts['default_ipv4']['interface'] | default('eth0') }}"
+# Oracle Cloud images ship their own iptables rules (netfilter-persistent) that
+# fight ufw. auto = detect them and hand INPUT/FORWARD over to ufw, keeping
+# Oracle's OUTPUT rules for the metadata and boot-volume addresses.
+# auto | always | never
+hardening_oracle_iptables: auto
+# Log blocked packets (ufw "low") so the daily digest can count scans.
+hardening_ufw_logging: low
+
+# --- Brute-force bans (standard S4) ------------------------------------------
+hardening_fail2ban: true
+hardening_fail2ban_bantime: 1h
+hardening_fail2ban_maxretry: 5
+# Never banned (the tailnet is trusted; add your home address if it is fixed).
+hardening_fail2ban_ignoreip:
+  - 127.0.0.1/8
+  - "::1"
+  - 100.64.0.0/10
+
+# --- Updates (standard S5) ---------------------------------------------------
+hardening_auto_reboot: true          # false on hosts where a 04:30 reboot hurts (GPU jobs)
+hardening_reboot_time: "04:30"
+# Extra apt origins unattended-upgrades may update, e.g.
+# "origin=Docker,codename=${distro_codename}" (restarts all containers).
+hardening_unattended_extra_origins: []
+hardening_timezone: Europe/London
+
+# --- Private access (standard S6) --------------------------------------------
+hardening_tailscale: false
+# A reusable or one-off auth key (keep it in Ansible Vault). Only used when the
+# host is not yet signed in to the tailnet.
+hardening_tailscale_authkey: ""
+hardening_cloudflared: false
+# The tunnel token from the Cloudflare dashboard (Vault). Only used to install
+# the service the first time.
+hardening_cloudflared_token: ""
+
+# --- Alerts and diagnostics (standard S7) -------------------------------------
+# Same ntfy/healthchecks settings as scripts/lib/alerts.sh. Empty = alerts are
+# only written to the journal.
+hardening_alert_ntfy_url: ""
+hardening_alert_ntfy_token: ""
+hardening_alert_email: ""
+# healthchecks.io check pinged by the daily digest, so a dead host is noticed.
+hardening_alert_hc_digest_url: ""
+hardening_login_alerts: true
+hardening_digest: true
+hardening_digest_time: "07:00"

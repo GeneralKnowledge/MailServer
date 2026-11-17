@@ -1,0 +1,27 @@
+---
+# A tunnel lets a web service be reached through Cloudflare with no inbound
+# port open. It carries HTTP(S) only: mail ports (25, 465, 587, 993) cannot use
+# it, so the mailcow host stays directly reachable on those.
+- name: Add Cloudflare's signing key
+  ansible.builtin.get_url:
+    url: https://pkg.cloudflare.com/cloudflare-main.gpg
+    dest: /usr/share/keyrings/cloudflare-main.gpg
+    mode: "0644"
+
+- name: Add the cloudflared package repository
+  ansible.builtin.apt_repository:
+    repo: deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main
+    filename: cloudflared
+    state: present
+
+- name: Install cloudflared
+  ansible.builtin.apt:
+    name: cloudflared
+    state: present
+
+- name: Install the tunnel service (first run only)
+  ansible.builtin.command: cloudflared service install {{ hardening_cloudflared_token }}
+  args:
+    creates: /etc/systemd/system/cloudflared.service
+  when: hardening_cloudflared_token | length > 0
+  no_log: true

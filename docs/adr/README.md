@@ -37,3 +37,4 @@ separately on purpose.
 | [0019](0019-identity-network-placement.md) | Keycloak on `avedeus-edge` (`.12`); its own Postgres on an internal network; experience network split deferred to PR 14/15 | Accepted | Yes in code (PR 11) | No |
 | [0020](0020-admin-console-and-invitations.md) | Admin console at `/console` with Keycloak admin group + one-time code; invitations stay in the sign-up app behind an internal API; control plane verifies the admin's token | Accepted (owner's choice) | Yes in code (PR 15) | No |
 | [0021](0021-account-lifecycle.md) | Account lifecycle: suspend keeps mail arriving (app passwords blocked, not revoked); deletion after 30 days and only after a newer backup | Accepted | Yes in code (PR 16) | No |
+| [0022](0022-host-hardening-baseline.md) | One host baseline (Ansible + read-only audit) for every machine; Docker-published ports filtered in `DOCKER-USER`; SSH over Tailscale | Accepted | Yes in code (`hardening/`, CI applies it to a VM) | No |

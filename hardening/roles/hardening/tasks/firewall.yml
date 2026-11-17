@@ -1,0 +1,188 @@
+---
+# --- Oracle Cloud images ------------------------------------------------------
+# They load /etc/iptables/rules.v4 at boot with iptables-persistent, which
+# ufw replaces (the packages conflict: installing ufw removes it). Oracle's
+# INPUT/FORWARD rules (REJECT everything, 22 open to all) are dropped and ufw
+# takes over. Its OUTPUT rules for 169.254.0.0/16 (only root may reach the
+# iSCSI boot volume; metadata service) are carried over into ufw so they
+# still load at boot.
+- name: Look for Oracle's iptables rules
+  ansible.builtin.slurp:
+    src: "/etc/iptables/{{ item }}"
+  register: hardening_oracle_rules
+  failed_when: false
+  loop: [rules.v4.pre-hardening, rules.v4]
+  when: hardening_oracle_iptables != 'never'
+
+- name: Decide whether this is an Oracle image
+  ansible.builtin.set_fact:
+    hardening_oracle_v4: "{{ oracle_v4 }}"
+    hardening_is_oracle: "{{ hardening_oracle_iptables == 'always' or (hardening_oracle_iptables == 'auto' and 'InstanceServices' in oracle_v4) }}"
+  vars:
+    oracle_v4: >-
+      {{ (hardening_oracle_rules.results | default([]) | selectattr('content', 'defined')
+          | map(attribute='content') | map('b64decode') | list + [''])[0] }}
+
+- name: Oracle iptables hand-over
+  when: hardening_is_oracle | bool
+  block:
+    - name: Keep a copy of Oracle's original rules
+      ansible.builtin.copy:
+        src: "/etc/iptables/{{ item }}"
+        dest: "/etc/iptables/{{ item }}.pre-hardening"
+        remote_src: true
+        force: false
+        mode: "0600"
+      loop: [rules.v4, rules.v6]
+      failed_when: false
+
+    - name: Remove Oracle's INPUT/FORWARD rules from the running firewall
+      # Only the rules Oracle's file adds, one by one, so Docker's chains stay.
+      ansible.builtin.shell: |
+        set -uo pipefail
+        for pair in "iptables /etc/iptables/rules.v4.pre-hardening" "ip6tables /etc/iptables/rules.v6.pre-hardening"; do
+          set -- $pair
+          [ -f "$2" ] || continue
+          grep -E '^-A (INPUT|FORWARD) ' "$2" | while read -r rule; do
+            while $1 -w ${rule/-A /-D } 2>/dev/null; do echo removed; done
+          done
+        done
+        exit 0
+      args:
+        executable: /bin/bash
+      register: hardening_oracle_live
+      changed_when: "'removed' in hardening_oracle_live.stdout"
+
+- name: Install ufw (on Oracle images this removes iptables-persistent)
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+
+- name: Carry Oracle's 169.254.0.0/16 OUTPUT rules over into ufw
+  ansible.builtin.blockinfile:
+    path: /etc/ufw/after.rules
+    create: true
+    mode: "0640"
+    marker: "# {mark} hardening oracle instance services"
+    insertafter: EOF
+    block: |
+      *filter
+      :InstanceServices - [0:0]
+      -A ufw-after-output -d 169.254.0.0/16 -j InstanceServices
+      {% for rule in hardening_oracle_v4 | regex_findall('(?m)^-A InstanceServices .*$') %}
+      {{ rule }}
+      {% endfor %}
+      COMMIT
+  notify: Reload ufw
+  when: hardening_is_oracle | bool
+
+# --- Policy -----------------------------------------------------------------
+- name: Deny incoming, allow outgoing
+  community.general.ufw:
+    direction: "{{ item.direction }}"
+    default: "{{ item.policy }}"
+  loop:
+    - { direction: incoming, policy: deny }
+    - { direction: outgoing, policy: allow }
+
+- name: Log blocked packets (for the daily scan count)
+  community.general.ufw:
+    logging: "{{ hardening_ufw_logging }}"
+
+- name: SSH over the tailnet only
+  when: hardening_ssh_tailscale_only
+  block:
+    - name: Allow SSH on tailscale0
+      community.general.ufw:
+        rule: allow
+        interface: tailscale0
+        direction: in
+        port: "22"
+        proto: tcp
+        comment: ssh (tailnet)
+
+    - name: Close public SSH
+      community.general.ufw:
+        rule: "{{ item }}"
+        port: "22"
+        proto: tcp
+        delete: true
+      loop: [allow, limit]
+
+- name: SSH from listed addresses only
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ item }}"
+    port: "22"
+    proto: tcp
+    comment: ssh
+  loop: "{{ hardening_ssh_allow_from }}"
+  when: not hardening_ssh_tailscale_only
+
+- name: SSH from anywhere, rate-limited (6 new connections per 30 s per address)
+  community.general.ufw:
+    rule: limit
+    port: "22"
+    proto: tcp
+    comment: ssh
+  when:
+    - not hardening_ssh_tailscale_only
+    - hardening_ssh_allow_from | length == 0
+
+- name: Drop SSH rules that a narrower one replaces
+  community.general.ufw:
+    rule: "{{ item }}"
+    port: "22"
+    proto: tcp
+    delete: true
+  loop: "{{ (hardening_ssh_allow_from | length > 0) | ternary(['allow', 'limit'], ['allow']) }}"
+  when: not hardening_ssh_tailscale_only
+
+- name: Public host services
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port | string }}"
+    proto: "{{ item.proto }}"
+  loop: >-
+    {{ hardening_public_tcp_ports | map('community.general.dict_kv', 'port') | map('combine', {'proto': 'tcp'}) | list +
+       hardening_public_udp_ports | map('community.general.dict_kv', 'port') | map('combine', {'proto': 'udp'}) | list }}
+  loop_control:
+    label: "{{ item.port }}/{{ item.proto }}"
+
+- name: Tailscale direct connections (UDP 41641; it also works without, via relays)
+  community.general.ufw:
+    rule: allow
+    port: "41641"
+    proto: udp
+    comment: tailscale
+  when: hardening_tailscale
+
+# --- Docker-published ports ---------------------------------------------------
+- name: Docker guard rules (IPv4 and IPv6)
+  ansible.builtin.blockinfile:
+    path: "/etc/ufw/{{ item }}"
+    marker: "# {mark} hardening docker guard"
+    block: "{{ lookup('ansible.builtin.template', 'docker-guard.rules.j2') }}"
+    insertafter: EOF
+    state: "{{ hardening_docker_guard | ternary('present', 'absent') }}"
+  loop: [after.rules, after6.rules]
+  notify: Reload ufw
+
+- name: Unload the guard when it is turned off (ufw reload leaves Docker's chain alone)
+  ansible.builtin.shell: |
+    set -uo pipefail
+    for t in iptables ip6tables; do
+      $t -S hardening-docker-in >/dev/null 2>&1 || continue
+      $t -S DOCKER-USER | grep -- '-j hardening-docker-in' | sed 's/^-A/-D/' | while read -r r; do $t $r; done
+      $t -F hardening-docker-in && $t -X hardening-docker-in && echo removed
+    done
+    exit 0
+  args:
+    executable: /bin/bash
+  register: hardening_guard_off
+  changed_when: "'removed' in hardening_guard_off.stdout"
+  when: not hardening_docker_guard
+
+- name: Turn ufw on
+  community.general.ufw:
+    state: enabled

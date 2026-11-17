@@ -1,0 +1,22 @@
+# Docker DNATs published ports in PREROUTING, so they never reach ufw's INPUT
+# rules. Traffic to them passes FORWARD -> DOCKER-USER, which Docker never
+# changes; we filter it there. Only packets arriving on the external
+# interfaces are checked; the tailnet, localhost and container-to-container
+# traffic pass. --ctorigdstport matches the port the client asked for (the
+# published port), not the container port after translation.
+*filter
+:DOCKER-USER - [0:0]
+:hardening-docker-in - [0:0]
+{% for iface in hardening_external_interfaces %}
+-A DOCKER-USER -i {{ iface }} -j hardening-docker-in
+{% endfor %}
+-A hardening-docker-in -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+{% for p in hardening_docker_public_tcp_ports %}
+-A hardening-docker-in -p tcp -m conntrack --ctorigdstport {{ p }} --ctdir ORIGINAL -j RETURN
+{% endfor %}
+{% for p in hardening_docker_public_udp_ports %}
+-A hardening-docker-in -p udp -m conntrack --ctorigdstport {{ p }} --ctdir ORIGINAL -j RETURN
+{% endfor %}
+-A hardening-docker-in -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix "[HARDENING DOCKER BLOCK] "
+-A hardening-docker-in -j DROP
+COMMIT

@@ -1,0 +1,9 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Daily security digest (logins, scans, bans, exposure audit)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hardening-digest

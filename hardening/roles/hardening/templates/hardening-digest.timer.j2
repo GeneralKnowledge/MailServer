@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Daily security digest
+
+[Timer]
+OnCalendar=*-*-* {{ hardening_digest_time }}:00
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

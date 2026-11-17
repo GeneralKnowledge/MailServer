@@ -144,6 +144,13 @@ skipped if you have no key), turns on automatic security updates, installs
 Docker, and checks out mailcow. **Before closing your SSH session**, open a
 second one to prove you can still log in.
 
+Then apply the host baseline from your own computer
+([server security standard](server-security-standard.md), profile P1):
+`ansible-playbook hardening/site.yml --limit mx.avedeus.ovh`. It takes over
+the SSH and update settings from `setup.sh` (a later `setup.sh` run leaves
+them alone), adds ufw, fail2ban, login alerts and a daily digest, and
+handles Oracle's stock firewall rules. Check with `sudo hardening-audit`.
+
 ### B3. Configure mailcow
 
 ```sh

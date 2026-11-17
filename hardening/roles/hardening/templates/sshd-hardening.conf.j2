@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+# sshd keeps the FIRST value it reads for each setting and reads
+# sshd_config.d/*.conf in name order, so this file sorts first.
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+PermitRootLogin no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+MaxAuthTries 3
+LoginGraceTime 30
+MaxStartups 10:30:60
+X11Forwarding no
+AllowAgentForwarding no
+# Local forwards (ssh -L, for admin pages bound to localhost) stay allowed.
+AllowTcpForwarding local
+PermitTunnel no
+ClientAliveInterval 300
+ClientAliveCountMax 2
+{% if hardening_ssh_allow_users %}
+AllowUsers {{ hardening_ssh_allow_users | join(' ') }}
+{% endif %}

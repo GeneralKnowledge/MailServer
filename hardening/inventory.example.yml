@@ -1,0 +1,47 @@
+---
+# Copy to inventory.yml (gitignored) and fill in. Secrets go in Ansible Vault:
+#   ansible-vault create group_vars/all/vault.yml   (vault_ntfy_url, vault_tailscale_authkey, ...)
+# Each group below is a machine profile from docs/server-security-standard.md.
+all:
+  vars:
+    ansible_user: ubuntu
+    hardening_alert_ntfy_url: "{{ vault_ntfy_url | default('') }}"
+    hardening_alert_hc_digest_url: "{{ vault_hc_digest_url | default('') }}"
+    hardening_tailscale: true
+    hardening_tailscale_authkey: "{{ vault_tailscale_authkey | default('') }}"
+
+  children:
+    # P1: the mailcow host. Mail ports must be public and cannot go through a
+    # tunnel. mailcow publishes them through Docker; the guard stays off here
+    # until it has been proven next to mailcow's own netfilter on the server.
+    # The audit still fails if mailcow publishes anything not listed.
+    mail:
+      hosts:
+        mx.avedeus.ovh:
+          ansible_host: 203.0.113.10        # placeholder
+      vars:
+        hardening_docker_guard: false
+        hardening_docker_public_tcp_ports: [25, 80, 443, 465, 587, 993, 4190]
+        hardening_ssh_tailscale_only: true
+
+    # P2: general servers (Hetzner, Oracle Always Free). Nothing public but
+    # what is listed; web apps preferably through a Cloudflare Tunnel.
+    servers:
+      hosts:
+        hetzner-1:
+          ansible_host: 203.0.113.20        # placeholder
+        oracle-free-1:
+          ansible_host: 203.0.113.30        # placeholder (Oracle iptables detected automatically)
+      vars:
+        hardening_ssh_tailscale_only: true
+
+    # P3: GPU / AI compute nodes. Model servers (Ollama 11434, vLLM 8000,
+    # Jupyter 8888) have no authentication of their own: reach them over the
+    # tailnet only. No surprise reboots in the middle of a job.
+    gpu:
+      hosts:
+        gpu-1:
+          ansible_host: 203.0.113.40        # placeholder
+      vars:
+        hardening_ssh_tailscale_only: true
+        hardening_auto_reboot: false

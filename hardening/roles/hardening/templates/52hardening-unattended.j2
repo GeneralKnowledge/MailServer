@@ -1,0 +1,14 @@
+// {{ ansible_managed }}
+// Security updates are applied daily. A kernel update needs a reboot; it
+// happens at the time below{% if not hardening_auto_reboot %} only if turned on (it is off for this host;
+// the daily digest says when a reboot is pending){% endif %}.
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Automatic-Reboot "{{ hardening_auto_reboot | ternary('true', 'false') }}";
+Unattended-Upgrade::Automatic-Reboot-Time "{{ hardening_reboot_time }}";
+{% if hardening_unattended_extra_origins %}
+Unattended-Upgrade::Origins-Pattern {
+{% for o in hardening_unattended_extra_origins %}
+        "{{ o }}";
+{% endfor %}
+};
+{% endif %}
