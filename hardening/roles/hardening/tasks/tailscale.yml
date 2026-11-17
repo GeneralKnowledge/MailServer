@@ -1,0 +1,57 @@
+---
+- name: Add Tailscale's signing key
+  ansible.builtin.get_url:
+    url: "https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_facts['distribution_release'] }}.noarmor.gpg"
+    dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    mode: "0644"
+
+- name: Add Tailscale's package repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg]
+      https://pkgs.tailscale.com/stable/ubuntu {{ ansible_facts['distribution_release'] }} main
+    filename: tailscale
+    state: present
+
+- name: Install Tailscale
+  ansible.builtin.apt:
+    name: tailscale
+    state: present
+
+- name: Run tailscaled
+  ansible.builtin.service:
+    name: tailscaled
+    state: started
+    enabled: true
+
+- name: Read Tailscale's state
+  ansible.builtin.command: tailscale status --json
+  register: hardening_ts_status
+  changed_when: false
+  failed_when: false
+
+- name: Sign in to the tailnet
+  # --ssh=false: SSH stays OpenSSH (keys, PAM login alerts, fail2ban).
+  ansible.builtin.command: >-
+    tailscale up --auth-key={{ hardening_tailscale_authkey }}
+    --hostname={{ inventory_hostname_short }} --ssh=false
+  when:
+    - hardening_tailscale_authkey | length > 0
+    - (hardening_ts_status.stdout | default('{}') | from_json).BackendState | default('') != 'Running'
+  changed_when: true
+  no_log: true
+
+- name: Read Tailscale's state again
+  ansible.builtin.command: tailscale status --json
+  register: hardening_ts_status
+  changed_when: false
+  failed_when: false
+
+- name: Refuse to close public SSH while Tailscale is not connected (lock-out guard)
+  ansible.builtin.assert:
+    that: (hardening_ts_status.stdout | default('{}') | from_json).BackendState | default('') == 'Running'
+    fail_msg: >-
+      Tailscale is not signed in on this host, so closing public SSH would lock
+      you out. Set hardening_tailscale_authkey or run `sudo tailscale up` once.
+    quiet: true
+  when: hardening_ssh_tailscale_only

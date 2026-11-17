@@ -1,6 +1,6 @@
 # Runs on every push and pull request: registration app tests, a dependency
-# vulnerability scan, shell script lint, a container build and the
-# architecture contract check (contracts/).
+# vulnerability scan, shell script lint, a container build, the
+# architecture contract check (contracts/) and the host baseline (hardening/).
 name: CI
 
 on:
@@ -183,6 +183,29 @@ jobs:
       - run: pip install pip-audit
       - run: pip-audit --strict -r registration/requirements.txt -r broker/requirements.txt -r portal/requirements.txt -r admin/requirements.txt
 
+  hardening:
+    name: Host baseline (applied to a fresh Ubuntu VM)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install ansible-core ansible-lint
+      - run: ansible-galaxy collection install -r hardening/requirements.yml
+      - name: Lint the playbook
+        working-directory: hardening
+        run: ansible-lint
+      # Applies the baseline to this runner, runs it twice (idempotence), then
+      # checks from a network namespace playing "the internet" that only the
+      # declared ports answer, Docker-published ones included, and that the
+      # audit fails when the Docker guard is off.
+      - name: Apply and test from outside
+        run: hardening/ci/runner-test.sh
+
   shellcheck:
     name: Shell scripts
     runs-on: ubuntu-latest
@@ -191,7 +214,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - run: shellcheck --version && shellcheck -S warning scripts/*.sh
+      - run: shellcheck --version && shellcheck -S warning scripts/*.sh hardening/*.sh hardening/ci/*.sh hardening/roles/hardening/files/*.sh
 
   image:
     name: Container build

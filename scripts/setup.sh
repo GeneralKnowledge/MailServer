@@ -31,7 +31,9 @@ dpkg-reconfigure -f noninteractive unattended-upgrades
 step "SSH: keys only, no root login"
 ADMIN_USER="${SUDO_USER:-ubuntu}"
 KEYS="$(getent passwd "$ADMIN_USER" | cut -d: -f6)/.ssh/authorized_keys"
-if [ -s "$KEYS" ]; then
+if [ -f /etc/ssh/sshd_config.d/01-hardening.conf ]; then
+  echo "SKIPPED: SSH is managed by the host baseline (hardening/, docs/server-security-standard.md)"
+elif [ -s "$KEYS" ]; then
   # sshd keeps the FIRST value it reads for each setting, and reads
   # sshd_config.d/*.conf in name order, so this file must sort first (01-)
   # or an image's own 50-cloud-init.conf could override it.
@@ -57,6 +59,9 @@ else
 fi
 
 step "Automatic security updates"
+if [ -f /etc/apt/apt.conf.d/52hardening-unattended ]; then
+  echo "SKIPPED: managed by the host baseline (hardening/)"
+else
 cat > /etc/apt/apt.conf.d/52mailserver-unattended <<'APT'
 // Written by MailServer scripts/setup.sh
 Unattended-Upgrade::Remove-Unused-Dependencies "true";
@@ -64,6 +69,7 @@ Unattended-Upgrade::Remove-Unused-Dependencies "true";
 Unattended-Upgrade::Automatic-Reboot "true";
 Unattended-Upgrade::Automatic-Reboot-Time "04:30";
 APT
+fi
 
 step "Hostname and time zone"
 hostnamectl set-hostname "$HOSTNAME_FQDN"

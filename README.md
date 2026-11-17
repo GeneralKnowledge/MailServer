@@ -45,6 +45,7 @@ Nothing has been deployed to the real server yet. The priority is getting M0–M
 - [deployment.md](docs/deployment.md),
   [dns-configuration.md](docs/dns-configuration.md), [email-testing.md](docs/email-testing.md),
   [administration.md](docs/administration.md), [security.md](docs/security.md),
+  [server-security-standard.md](docs/server-security-standard.md) (every machine; `hardening/`),
   [backup-and-recovery.md](docs/backup-and-recovery.md)
 - [registration/](registration/) – invite website and admin (FastAPI)
 - [infrastructure/](infrastructure/) – compose file for the app, nginx and SOGo files for mailcow

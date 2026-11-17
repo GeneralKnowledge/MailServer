@@ -1,0 +1,67 @@
+---
+- name: Install the SSH server
+  ansible.builtin.apt:
+    name: openssh-server
+    state: present
+
+- name: Find the admin account's home
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ hardening_admin_user }}"
+
+- name: Read the admin account's authorized keys
+  ansible.builtin.stat:
+    path: "{{ ansible_facts['getent_passwd'][hardening_admin_user][4] }}/.ssh/authorized_keys"
+  register: hardening_admin_keys
+
+- name: Refuse to turn off passwords while the admin has no key (lock-out guard)
+  ansible.builtin.assert:
+    that:
+      - hardening_admin_keys.stat.exists
+      - hardening_admin_keys.stat.size > 0
+    fail_msg: >-
+      {{ hardening_admin_user }} has no ~/.ssh/authorized_keys. Add a key and sign
+      in with it once before running the baseline, or you could be locked out.
+    quiet: true
+
+- name: Make sure sshd's runtime directory exists (sshd -t needs it before the first connection)
+  ansible.builtin.file:
+    path: /run/sshd
+    state: directory
+    mode: "0755"
+
+- name: Write the SSH settings (01- sorts first, so it wins over cloud-init's 50- file)
+  ansible.builtin.template:
+    src: sshd-hardening.conf.j2
+    dest: /etc/ssh/sshd_config.d/01-hardening.conf
+    mode: "0644"
+    validate: /usr/sbin/sshd -t -f %s
+  notify: Reload sshd
+
+- name: Remove the older copies written by scripts/setup.sh
+  ansible.builtin.file:
+    path: "/etc/ssh/sshd_config.d/{{ item }}"
+    state: absent
+  loop:
+    - 01-mailserver.conf
+    - 60-mailserver.conf
+  notify: Reload sshd
+
+- name: Check the settings sshd will really use (not just what was written)
+  ansible.builtin.command: >-
+    /usr/sbin/sshd -T -C user={{ hardening_admin_user }},host=localhost,addr=127.0.0.1
+  register: hardening_sshd_effective
+  changed_when: false
+
+- name: Fail if another file overrides the baseline
+  ansible.builtin.assert:
+    that: item in hardening_sshd_effective.stdout_lines
+    fail_msg: "sshd is not using '{{ item }}'; another file in /etc/ssh/sshd_config.d/ sorts before 01-hardening.conf"
+    quiet: true
+  loop:
+    - passwordauthentication no
+    - kbdinteractiveauthentication no
+    - permitrootlogin no
+    - pubkeyauthentication yes
+    - maxauthtries 3
+    - x11forwarding no

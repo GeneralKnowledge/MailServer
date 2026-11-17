@@ -1,0 +1,12 @@
+---
+# Apply the Avedeus host baseline (docs/server-security-standard.md) to every
+# machine in the inventory. Safe to re-run; a second run changes nothing.
+#
+#   ansible-galaxy collection install -r requirements.yml
+#   ansible-playbook site.yml --check --diff     # see what would change
+#   ansible-playbook site.yml                    # apply
+- name: Host hardening baseline
+  hosts: all
+  become: true
+  roles:
+    - hardening

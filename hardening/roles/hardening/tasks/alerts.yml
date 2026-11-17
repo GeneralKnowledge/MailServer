@@ -1,0 +1,63 @@
+---
+- name: Create /etc/hardening
+  ansible.builtin.file:
+    path: /etc/hardening
+    state: directory
+    mode: "0755"
+
+- name: Write the alert settings (secrets, root only)
+  ansible.builtin.template:
+    src: alerts.env.j2
+    dest: /etc/hardening/alerts.env
+    mode: "0600"
+
+- name: Write the host's declared exposure, which the audit checks against
+  ansible.builtin.template:
+    src: policy.env.j2
+    dest: /etc/hardening/policy.env
+    mode: "0644"
+
+- name: Create /usr/local/lib/hardening
+  ansible.builtin.file:
+    path: /usr/local/lib/hardening
+    state: directory
+    mode: "0755"
+
+- name: Install the shared alert helpers (same as the mail server's)
+  ansible.builtin.copy:
+    src: "{{ role_path }}/../../../scripts/lib/alerts.sh"
+    dest: /usr/local/lib/hardening/alerts.sh
+    mode: "0644"
+
+- name: Install the audit, digest and login-alert scripts
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "/usr/local/sbin/{{ item.dest }}"
+    mode: "0755"
+  loop:
+    - { src: "{{ role_path }}/../../audit.sh", dest: hardening-audit }
+    - { src: digest.sh, dest: hardening-digest }
+    - { src: login-alert.sh, dest: hardening-login-alert }
+
+- name: Alert on every SSH login (pam_exec; never blocks or fails the login)
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/sshd
+    line: session optional pam_exec.so quiet /usr/local/sbin/hardening-login-alert
+    state: "{{ hardening_login_alerts | ternary('present', 'absent') }}"
+
+- name: Install the daily digest service and timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - hardening-digest.service
+    - hardening-digest.timer
+  register: hardening_digest_units
+
+- name: Run the daily digest
+  ansible.builtin.systemd_service:
+    name: hardening-digest.timer
+    enabled: "{{ hardening_digest }}"
+    state: "{{ hardening_digest | ternary('started', 'stopped') }}"
+    daemon_reload: "{{ hardening_digest_units is changed }}"

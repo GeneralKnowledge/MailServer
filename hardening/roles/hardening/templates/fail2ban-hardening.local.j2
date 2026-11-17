@@ -1,0 +1,17 @@
+# {{ ansible_managed }}
+[DEFAULT]
+bantime = {{ hardening_fail2ban_bantime }}
+findtime = 10m
+maxretry = {{ hardening_fail2ban_maxretry }}
+ignoreip = {{ hardening_fail2ban_ignoreip | join(' ') }}
+
+[sshd]
+enabled = true
+backend = systemd
+# "aggressive" also counts key-only scanners that disconnect before auth.
+mode = aggressive
+
+[recidive]
+enabled = true
+bantime = 1w
+findtime = 1d

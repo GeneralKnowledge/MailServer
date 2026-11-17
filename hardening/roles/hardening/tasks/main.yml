@@ -1,0 +1,44 @@
+---
+- name: Check this is Ubuntu
+  ansible.builtin.assert:
+    that: ansible_facts['distribution'] == 'Ubuntu'
+    fail_msg: The baseline is written and tested for Ubuntu 22.04/24.04 only.
+    quiet: true
+
+- name: Check the settings fit together
+  ansible.builtin.assert:
+    that:
+      - not hardening_ssh_tailscale_only or hardening_tailscale
+      - not (hardening_ssh_tailscale_only and hardening_ssh_allow_from | length > 0)
+      - 22 not in hardening_public_tcp_ports
+      - not hardening_ssh_allow_users or hardening_admin_user in hardening_ssh_allow_users
+    fail_msg: >-
+      hardening_ssh_tailscale_only needs hardening_tailscale: true and no
+      hardening_ssh_allow_from; SSH (22) is set with the hardening_ssh_* options,
+      not hardening_public_tcp_ports; hardening_ssh_allow_users must include
+      the admin account.
+    quiet: true
+
+- name: Base packages, updates, time and kernel settings
+  ansible.builtin.import_tasks: base.yml
+
+- name: Tailscale
+  ansible.builtin.import_tasks: tailscale.yml
+  when: hardening_tailscale
+
+- name: SSH
+  ansible.builtin.import_tasks: ssh.yml
+
+- name: Firewall
+  ansible.builtin.import_tasks: firewall.yml
+
+- name: Fail2ban
+  ansible.builtin.import_tasks: fail2ban.yml
+  when: hardening_fail2ban
+
+- name: Cloudflare Tunnel
+  ansible.builtin.import_tasks: cloudflared.yml
+  when: hardening_cloudflared
+
+- name: Alerts, digest and audit
+  ansible.builtin.import_tasks: alerts.yml
