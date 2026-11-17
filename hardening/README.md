@@ -40,7 +40,7 @@ anyway, and know how to reach the provider's web console.
 | `/etc/ssh/sshd_config.d/01-hardening.conf` | SSH settings |
 | `/etc/ufw/after.rules`, `after6.rules` (marked blocks) | Docker guard; Oracle's 169.254.0.0/16 rules |
 | `/etc/fail2ban/jail.d/hardening.local` | sshd and recidive jails |
-| `/etc/apt/apt.conf.d/20auto-upgrades`, `52hardening-unattended` | updates and reboot window |
+| `/etc/apt/apt.conf.d/99hardening-auto-upgrades`, `52hardening-unattended` | updates and reboot window |
 | `/etc/sysctl.d/60-hardening.conf` | kernel network settings |
 | `/etc/hardening/policy.env` | what the host may expose (read by the audit) |
 | `/etc/hardening/alerts.env` (600) | ntfy / healthchecks settings |

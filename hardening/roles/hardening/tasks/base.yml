@@ -14,14 +14,36 @@
     cache_valid_time: 3600
 
 - name: Turn on daily package lists and unattended upgrades
+  # 99-: sorts last, so an image's own file (some ship "0") cannot switch it off.
   ansible.builtin.copy:
-    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    dest: /etc/apt/apt.conf.d/99hardening-auto-upgrades
     content: |
       // Managed by the hardening baseline (hardening/)
       APT::Periodic::Update-Package-Lists "1";
       APT::Periodic::Unattended-Upgrade "1";
       APT::Periodic::AutocleanInterval "7";
     mode: "0644"
+
+- name: Run apt's daily timers (unmasked and enabled)
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    masked: false
+    state: started
+  loop:
+    - apt-daily.timer
+    - apt-daily-upgrade.timer
+
+- name: Read apt's effective settings
+  ansible.builtin.command: apt-config dump APT::Periodic
+  register: hardening_apt_periodic
+  changed_when: false
+
+- name: Fail if unattended upgrades are still off
+  ansible.builtin.assert:
+    that: "'APT::Periodic::Unattended-Upgrade \"1\";' in hardening_apt_periodic.stdout"
+    fail_msg: apt still has unattended upgrades off; look for a later file in /etc/apt/apt.conf.d/
+    quiet: true
 
 - name: Configure unattended upgrades (reboot window, extra origins)
   ansible.builtin.template:
